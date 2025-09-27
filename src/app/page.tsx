@@ -7,6 +7,8 @@ interface ReportListItem {
   id: string;
   originalName: string;
   createdAt: string;
+  cloudLink: string | null;
+  addedToCloud: boolean;
   latestCheck: {
     id: string;
     status: string;
@@ -23,6 +25,9 @@ interface CheckDetails {
   createdAt: string;
   completedAt: string | null;
   reportId: string;
+  reportName: string | null;
+  reportCloudLink: string | null;
+  reportAddedToCloud: boolean;
 }
 
 interface MatchResult {
@@ -42,6 +47,8 @@ export default function HomePage() {
   const [diff, setDiff] = useState<DiffSegment[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [cloudLinkValue, setCloudLinkValue] = useState('');
+  const [cloudActionId, setCloudActionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadReports = async () => {
@@ -50,7 +57,13 @@ export default function HomePage() {
       throw new Error('Не удалось загрузить отчеты');
     }
     const data = await response.json();
-    setReports(data.reports);
+    setReports(
+      data.reports.map((report: ReportListItem) => ({
+        ...report,
+        cloudLink: report.cloudLink ?? null,
+        addedToCloud: report.addedToCloud ?? false,
+      }))
+    );
   };
 
   useEffect(() => {
@@ -70,7 +83,12 @@ export default function HomePage() {
       }
       const data = await response.json();
       if (!cancelled) {
-        setCheckDetails(data.check);
+        setCheckDetails({
+          ...data.check,
+          reportName: data.check.reportName ?? null,
+          reportCloudLink: data.check.reportCloudLink ?? null,
+          reportAddedToCloud: data.check.reportAddedToCloud ?? false,
+        });
         if (data.check.status === 'completed') {
           setSelectedMatch(null);
           setDiff([]);
@@ -131,6 +149,7 @@ export default function HomePage() {
       await loadReports();
       event.currentTarget.reset();
       setFileName(null);
+      setCloudLinkValue('');
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -139,6 +158,121 @@ export default function HomePage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const applyReportPatch = (patched: {
+    id: string;
+    originalName?: string;
+    cloudLink?: string | null;
+    addedToCloud?: boolean;
+  }) => {
+    setReports((current) =>
+      current.map((item) => {
+        if (item.id !== patched.id) {
+          return item;
+        }
+        return {
+          ...item,
+          ...(patched.originalName !== undefined ? { originalName: patched.originalName } : {}),
+          ...(patched.cloudLink !== undefined ? { cloudLink: patched.cloudLink } : {}),
+          ...(patched.addedToCloud !== undefined ? { addedToCloud: patched.addedToCloud } : {}),
+        };
+      })
+    );
+    setCheckDetails((current) => {
+      if (!current || current.reportId !== patched.id) {
+        return current;
+      }
+      return {
+        ...current,
+        ...(patched.originalName !== undefined ? { reportName: patched.originalName } : {}),
+        ...(patched.cloudLink !== undefined ? { reportCloudLink: patched.cloudLink } : {}),
+        ...(patched.addedToCloud !== undefined ? { reportAddedToCloud: patched.addedToCloud } : {}),
+      };
+    });
+  };
+
+  const requestCloudLinkUpdate = async (reportId: string, currentLink: string | null) => {
+    const nextLink = window.prompt('Вставьте ссылку на облачный диск', currentLink ?? '');
+    if (nextLink === null) {
+      return;
+    }
+    const trimmed = nextLink.trim();
+    setCloudActionId(reportId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/reports/${reportId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cloudLink: trimmed.length ? trimmed : null }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = (payload as { message?: string }).message ?? 'Не удалось сохранить ссылку';
+        throw new Error(message);
+      }
+      if (payload && typeof payload === 'object' && 'report' in payload) {
+        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
+        applyReportPatch({
+          id: reportPayload.id,
+          originalName: reportPayload.originalName,
+          cloudLink: reportPayload.cloudLink ?? null,
+          addedToCloud: reportPayload.addedToCloud ?? false,
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Неизвестная ошибка при обновлении ссылки');
+      }
+    } finally {
+      setCloudActionId(null);
+    }
+  };
+
+  const markReportAddedToCloud = async (reportId: string) => {
+    const report = reports.find((item) => item.id === reportId);
+    const existingLink = report?.cloudLink ?? (checkDetails?.reportId === reportId ? checkDetails.reportCloudLink : null);
+    if (!existingLink) {
+      setError('Сначала добавьте ссылку на облачный диск.');
+      return;
+    }
+    setCloudActionId(reportId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/reports/${reportId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ addedToCloud: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = (payload as { message?: string }).message ?? 'Не удалось обновить статус отчета';
+        throw new Error(message);
+      }
+      if (payload && typeof payload === 'object' && 'report' in payload) {
+        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
+        applyReportPatch({
+          id: reportPayload.id,
+          originalName: reportPayload.originalName,
+          cloudLink: reportPayload.cloudLink ?? null,
+          addedToCloud: reportPayload.addedToCloud ?? false,
+        });
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Неизвестная ошибка при обновлении статуса облака');
+      }
+    } finally {
+      setCloudActionId(null);
     }
   };
 
@@ -197,6 +331,23 @@ export default function HomePage() {
               <div className="dropzone__hint">Формат PDF, текст будет извлечен автоматически</div>
             </div>
           </label>
+          <div className="form-field">
+            <label htmlFor="cloudLink" className="form-field__label">
+              Ссылка на облачный диск
+            </label>
+            <input
+              id="cloudLink"
+              name="cloudLink"
+              className="form-field__input"
+              type="url"
+              placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
+              value={cloudLinkValue}
+              onChange={(event) => setCloudLinkValue(event.target.value)}
+            />
+            <span className="form-field__hint">
+              Укажите папку с исходными файлами. Мы сохраним ссылку, чтобы после проверки добавить отчет в облако.
+            </span>
+          </div>
           <div className="form-footer">
             <button type="submit" className="button button--primary" disabled={loading}>
               {loading ? 'Отправка…' : 'Отправить на проверку'}
@@ -222,6 +373,7 @@ export default function HomePage() {
                 <th>Дата загрузки</th>
                 <th>Статус проверки</th>
                 <th>Совпадение</th>
+                <th>Облачный диск</th>
                 <th></th>
               </tr>
             </thead>
@@ -245,6 +397,39 @@ export default function HomePage() {
                       )}
                     </td>
                     <td>{similarityText}</td>
+                    <td>
+                      <div className="cloud-cell">
+                        {report.cloudLink ? (
+                          <a
+                            className="cloud-cell__link"
+                            href={report.cloudLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Открыть облако
+                          </a>
+                        ) : (
+                          <span className="text-muted">Ссылка не указана</span>
+                        )}
+                        <div className="cloud-cell__footer">
+                          <span
+                            className={`status-chip ${
+                              report.addedToCloud ? 'status-chip--completed' : 'status-chip--muted'
+                            }`}
+                          >
+                            {report.addedToCloud ? 'На диске' : 'Не загружен'}
+                          </span>
+                          <button
+                            type="button"
+                            className="button button--ghost cloud-cell__action"
+                            onClick={() => requestCloudLinkUpdate(report.id, report.cloudLink)}
+                            disabled={cloudActionId === report.id}
+                          >
+                            {report.cloudLink ? 'Изменить' : 'Добавить'}
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                     <td>
                       {latestCheck && (
                         <button
@@ -280,6 +465,69 @@ export default function HomePage() {
             {checkDetails.similarity != null &&
               ` Максимальное совпадение: ${checkDetails.similarity.toFixed(2)}%.`}
           </p>
+
+          <div className="cloud-panel">
+            <div className="cloud-panel__header">
+              <h4 className="cloud-panel__title">Облачный диск</h4>
+              <span
+                className={`status-chip ${
+                  checkDetails.reportAddedToCloud ? 'status-chip--completed' : 'status-chip--muted'
+                }`}
+              >
+                {checkDetails.reportAddedToCloud ? 'Отчет на диске' : 'Не загружен'}
+              </span>
+            </div>
+            <p className="cloud-panel__description">
+              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. После завершения проверки
+              можно загрузить новый отчет в ту же папку.
+            </p>
+            <div className="cloud-panel__actions">
+              {checkDetails.reportCloudLink ? (
+                <>
+                  <a
+                    className="button button--secondary"
+                    href={checkDetails.reportCloudLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Открыть диск
+                  </a>
+                  <button
+                    type="button"
+                    className="button button--ghost"
+                    onClick={() => requestCloudLinkUpdate(checkDetails.reportId, checkDetails.reportCloudLink)}
+                    disabled={cloudActionId === checkDetails.reportId}
+                  >
+                    Изменить ссылку
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="button button--ghost"
+                  onClick={() => requestCloudLinkUpdate(checkDetails.reportId, null)}
+                  disabled={cloudActionId === checkDetails.reportId}
+                >
+                  Добавить ссылку
+                </button>
+              )}
+              <button
+                type="button"
+                className="button button--primary"
+                onClick={() => markReportAddedToCloud(checkDetails.reportId)}
+                disabled={
+                  cloudActionId === checkDetails.reportId ||
+                  !checkDetails.reportCloudLink ||
+                  checkDetails.reportAddedToCloud
+                }
+              >
+                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет на диск'}
+              </button>
+            </div>
+            {!checkDetails.reportCloudLink && (
+              <p className="cloud-panel__hint">Без ссылки мы не сможем сохранить путь к облаку для этого отчета.</p>
+            )}
+          </div>
 
           {checkDetails.matches.length === 0 ? (
             <div className="diff-placeholder">Совпадений не найдено — отчет уникален.</div>

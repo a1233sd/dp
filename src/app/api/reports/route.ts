@@ -10,6 +10,8 @@ export async function GET() {
       id: report.id,
       originalName: report.original_name,
       createdAt: report.created_at,
+      cloudLink: report.cloud_link,
+      addedToCloud: Boolean(report.added_to_cloud),
       latestCheck: latestCheck
         ? {
             id: latestCheck.id,
@@ -26,6 +28,18 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const file = formData.get('file');
+  const cloudLinkRaw = formData.get('cloudLink');
+  let cloudLink: string | null = null;
+
+  if (typeof cloudLinkRaw === 'string' && cloudLinkRaw.trim()) {
+    try {
+      const parsed = new URL(cloudLinkRaw.trim());
+      cloudLink = parsed.toString();
+    } catch {
+      return NextResponse.json({ message: 'Некорректная ссылка на облачный диск' }, { status: 400 });
+    }
+  }
+
   if (!(file instanceof File)) {
     return NextResponse.json({ message: 'Файл не найден в запросе' }, { status: 400 });
   }
@@ -48,6 +62,7 @@ export async function POST(req: NextRequest) {
     original_name: file.name,
     stored_name: stored.storedName,
     text_content: pdfData.text,
+    cloud_link: cloudLink,
   });
 
   const check = queueCheck(report.id);
