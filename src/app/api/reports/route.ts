@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport, findLatestCheckForReport, listReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
+import { parsePdf } from '@/lib/pdf-parser';
 
 export async function GET() {
   const reports = listReports().map((report) => {
@@ -48,9 +49,9 @@ export async function POST(req: NextRequest) {
   }
 
   const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const { default: pdfParse } = await import('pdf-parse');
-  const pdfData = await pdfParse(buffer);
+  const uint8Array = new Uint8Array(arrayBuffer);
+  const buffer = Buffer.from(uint8Array);
+  const pdfData = await parsePdf(uint8Array);
 
   if (!pdfData.text.trim()) {
     return NextResponse.json({ message: 'Не удалось извлечь текст из PDF' }, { status: 400 });

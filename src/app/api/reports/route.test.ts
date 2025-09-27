@@ -16,20 +16,20 @@ vi.mock('@/lib/check-processor', () => ({
   queueCheck: vi.fn(),
 }));
 
-vi.mock('pdf-parse', () => ({
-  default: vi.fn(),
+vi.mock('@/lib/pdf-parser', () => ({
+  parsePdf: vi.fn(),
 }));
 
 import { POST } from './route';
 import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
-import pdfParse from 'pdf-parse';
+import { parsePdf } from '@/lib/pdf-parser';
 
 const persistReportFileMock = vi.mocked(persistReportFile);
 const createReportMock = vi.mocked(createReport);
 const queueCheckMock = vi.mocked(queueCheck);
-const pdfParseMock = vi.mocked(pdfParse);
+const pdfParseMock = vi.mocked(parsePdf);
 const persistReportTextMock = vi.mocked(persistReportText);
 
 describe('POST /api/reports', () => {
