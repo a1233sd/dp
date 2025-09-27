@@ -1,8 +1,10 @@
 node_modules
 .next
 .env
-storage
-data
+storage/*
+!storage/.gitkeep
+data/*
+!data/.gitkeep
 sample_reports
 coverage
 *.log
