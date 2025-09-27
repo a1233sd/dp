@@ -1,0 +1,9 @@
+node_modules
+.next
+.env
+storage
+data
+sample_reports
+coverage
+*.log
+
