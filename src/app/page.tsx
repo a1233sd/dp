@@ -9,6 +9,7 @@ interface ReportListItem {
   createdAt: string;
   cloudLink: string | null;
   addedToCloud: boolean;
+  priorityIndexedAt: string | null;
   latestCheck: {
     id: string;
     status: string;
@@ -28,6 +29,7 @@ interface CheckDetails {
   reportName: string | null;
   reportCloudLink: string | null;
   reportAddedToCloud: boolean;
+  reportPriorityIndexedAt: string | null;
 }
 
 interface MatchResult {
@@ -50,6 +52,8 @@ export default function HomePage() {
   const [cloudLinkValue, setCloudLinkValue] = useState('');
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
+  const priorityIndexedCount = reports.filter((report) => Boolean(report.priorityIndexedAt)).length;
 
   const loadReports = async () => {
     const response = await fetch('/api/reports');
@@ -62,6 +66,7 @@ export default function HomePage() {
         ...report,
         cloudLink: report.cloudLink ?? null,
         addedToCloud: report.addedToCloud ?? false,
+        priorityIndexedAt: report.priorityIndexedAt ?? null,
       }))
     );
   };
@@ -88,6 +93,7 @@ export default function HomePage() {
           reportName: data.check.reportName ?? null,
           reportCloudLink: data.check.reportCloudLink ?? null,
           reportAddedToCloud: data.check.reportAddedToCloud ?? false,
+          reportPriorityIndexedAt: data.check.reportPriorityIndexedAt ?? null,
         });
         if (data.check.status === 'completed') {
           setSelectedMatch(null);
@@ -166,6 +172,7 @@ export default function HomePage() {
     originalName?: string;
     cloudLink?: string | null;
     addedToCloud?: boolean;
+    priorityIndexedAt?: string | null;
   }) => {
     setReports((current) =>
       current.map((item) => {
@@ -177,6 +184,9 @@ export default function HomePage() {
           ...(patched.originalName !== undefined ? { originalName: patched.originalName } : {}),
           ...(patched.cloudLink !== undefined ? { cloudLink: patched.cloudLink } : {}),
           ...(patched.addedToCloud !== undefined ? { addedToCloud: patched.addedToCloud } : {}),
+          ...(patched.priorityIndexedAt !== undefined
+            ? { priorityIndexedAt: patched.priorityIndexedAt }
+            : {}),
         };
       })
     );
@@ -189,6 +199,9 @@ export default function HomePage() {
         ...(patched.originalName !== undefined ? { reportName: patched.originalName } : {}),
         ...(patched.cloudLink !== undefined ? { reportCloudLink: patched.cloudLink } : {}),
         ...(patched.addedToCloud !== undefined ? { reportAddedToCloud: patched.addedToCloud } : {}),
+        ...(patched.priorityIndexedAt !== undefined
+          ? { reportPriorityIndexedAt: patched.priorityIndexedAt }
+          : {}),
       };
     });
   };
@@ -215,12 +228,21 @@ export default function HomePage() {
         throw new Error(message);
       }
       if (payload && typeof payload === 'object' && 'report' in payload) {
-        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
+        const reportPayload = (payload as {
+          report: {
+            id: string;
+            originalName?: string;
+            cloudLink?: string | null;
+            addedToCloud?: boolean;
+            priorityIndexedAt?: string | null;
+          };
+        }).report;
         applyReportPatch({
           id: reportPayload.id,
           originalName: reportPayload.originalName,
           cloudLink: reportPayload.cloudLink ?? null,
           addedToCloud: reportPayload.addedToCloud ?? false,
+          priorityIndexedAt: reportPayload.priorityIndexedAt ?? null,
         });
       }
     } catch (err) {
@@ -257,12 +279,21 @@ export default function HomePage() {
         throw new Error(message);
       }
       if (payload && typeof payload === 'object' && 'report' in payload) {
-        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
+        const reportPayload = (payload as {
+          report: {
+            id: string;
+            originalName?: string;
+            cloudLink?: string | null;
+            addedToCloud?: boolean;
+            priorityIndexedAt?: string | null;
+          };
+        }).report;
         applyReportPatch({
           id: reportPayload.id,
           originalName: reportPayload.originalName,
           cloudLink: reportPayload.cloudLink ?? null,
           addedToCloud: reportPayload.addedToCloud ?? false,
+          priorityIndexedAt: reportPayload.priorityIndexedAt ?? null,
         });
       }
     } catch (err) {
@@ -280,10 +311,10 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="card card--hero fade-in">
         <span className="card__eyebrow">Быстрый старт</span>
-        <h2 className="card__title">Загрузите PDF и получите визуальный diff совпадений</h2>
+        <h2 className="card__title">Загрузите PDF и найдите совпадения с облачной базой</h2>
         <p className="card__subtitle">
-          DiffPress анализирует новые лабораторные отчеты, сравнивает их с базой и показывает совпадения в формате
-          git diff, чтобы сразу увидеть заимствования.
+          DiffPress анализирует новые лабораторные отчеты, сравнивает их с архивом, размещенным в облаке, и показывает совпадения
+          в формате git diff, чтобы сразу увидеть заимствования.
         </p>
         <div className="hero-actions">
           <button
@@ -294,7 +325,14 @@ export default function HomePage() {
             Загрузить PDF
           </button>
           <span className="text-muted">
-            В базе: {reports.length} {pluralize(reports.length, 'отчет', 'отчета', 'отчетов')}
+            В облачной базе:{' '}
+            {cloudReportsCount}{' '}
+            {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
+          </span>
+          <span className="text-muted">
+            Приоритетный индекс:{' '}
+            {priorityIndexedCount}{' '}
+            {pluralize(priorityIndexedCount, 'отчет', 'отчета', 'отчетов')}
           </span>
           {selectedCheckId && (
             <span className="status-chip status-chip--processing">Проверка #{selectedCheckId.slice(0, 8)}…</span>
@@ -345,7 +383,7 @@ export default function HomePage() {
               onChange={(event) => setCloudLinkValue(event.target.value)}
             />
             <span className="form-field__hint">
-              Укажите папку с исходными файлами. Мы сохраним ссылку, чтобы после проверки добавить отчет в облако.
+              Укажите папку с исходными файлами. Отчеты, помеченные как добавленные в облако, участвуют в проверках на плагиат.
             </span>
           </div>
           <div className="form-footer">
@@ -353,7 +391,7 @@ export default function HomePage() {
               {loading ? 'Отправка…' : 'Отправить на проверку'}
             </button>
             <span className="text-muted">
-              Файл сохраняется на диск, а текст индексируется для последующих проверок.
+              Проверка выполняется по архиву из облачного хранилища. Добавляйте ссылки, чтобы включить отчеты в базу.
             </span>
           </div>
         </form>
@@ -363,7 +401,9 @@ export default function HomePage() {
       <section className="card fade-in">
         <div className="card__header">
           <h3 className="card__header-title">База отчетов</h3>
-          <span className="text-muted">Выберите отчет, чтобы посмотреть последние результаты проверки.</span>
+          <span className="text-muted">
+            Отчеты с добавленной облачной ссылкой участвуют в проверках. Выберите запись, чтобы увидеть результаты.
+          </span>
         </div>
         <div className="reports-table">
           <table className="table">
@@ -373,7 +413,8 @@ export default function HomePage() {
                 <th>Дата загрузки</th>
                 <th>Статус проверки</th>
                 <th>Совпадение</th>
-                <th>Облачный диск</th>
+                <th>Облачная база</th>
+                <th>Индексация</th>
                 <th></th>
               </tr>
             </thead>
@@ -383,6 +424,7 @@ export default function HomePage() {
                 const similarityText =
                   latestCheck?.similarity != null ? `${latestCheck.similarity.toFixed(2)}%` : '—';
                 const isActive = latestCheck?.id === selectedCheckId;
+                const priorityIndexedAt = report.priorityIndexedAt;
                 return (
                   <tr key={report.id} className={isActive ? 'table__row--active' : undefined}>
                     <td>{report.originalName}</td>
@@ -417,7 +459,7 @@ export default function HomePage() {
                               report.addedToCloud ? 'status-chip--completed' : 'status-chip--muted'
                             }`}
                           >
-                            {report.addedToCloud ? 'На диске' : 'Не загружен'}
+                            {report.addedToCloud ? 'В облачной базе' : 'Не в базе'}
                           </span>
                           <button
                             type="button"
@@ -427,6 +469,24 @@ export default function HomePage() {
                           >
                             {report.cloudLink ? 'Изменить' : 'Добавить'}
                           </button>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="cloud-cell">
+                        <span
+                          className={`status-chip ${
+                            priorityIndexedAt ? 'status-chip--processing' : 'status-chip--muted'
+                          }`}
+                        >
+                          {priorityIndexedAt ? 'В приоритете' : 'Ждет совпадения'}
+                        </span>
+                        <div className="cloud-cell__footer">
+                          <span className="text-muted">
+                            {priorityIndexedAt
+                              ? `С ${new Date(priorityIndexedAt).toLocaleString()}`
+                              : 'Индекс обновится после фиксации плагиата'}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -474,13 +534,29 @@ export default function HomePage() {
                   checkDetails.reportAddedToCloud ? 'status-chip--completed' : 'status-chip--muted'
                 }`}
               >
-                {checkDetails.reportAddedToCloud ? 'Отчет на диске' : 'Не загружен'}
+                {checkDetails.reportAddedToCloud ? 'Отчет в облачной базе' : 'Не в базе'}
               </span>
             </div>
             <p className="cloud-panel__description">
-              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. После завершения проверки
-              можно загрузить новый отчет в ту же папку.
+              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. Только такие отчеты попадают в облачную
+              базу для последующих проверок.
             </p>
+            <div className="cloud-panel__meta">
+              <span
+                className={`status-chip ${
+                  checkDetails.reportPriorityIndexedAt ? 'status-chip--processing' : 'status-chip--muted'
+                }`}
+              >
+                {checkDetails.reportPriorityIndexedAt
+                  ? 'Текст в приоритетном индексе'
+                  : 'Нет приоритетного индекса'}
+              </span>
+              <span className="text-muted">
+                {checkDetails.reportPriorityIndexedAt
+                  ? `Обновлено ${new Date(checkDetails.reportPriorityIndexedAt).toLocaleString()}`
+                  : 'После первого совпадения отчет будет проверяться в первую очередь.'}
+              </span>
+            </div>
             <div className="cloud-panel__actions">
               {checkDetails.reportCloudLink ? (
                 <>
@@ -521,7 +597,7 @@ export default function HomePage() {
                   checkDetails.reportAddedToCloud
                 }
               >
-                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет на диск'}
+                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет в облако'}
               </button>
             </div>
             {!checkDetails.reportCloudLink && (
@@ -530,7 +606,9 @@ export default function HomePage() {
           </div>
 
           {checkDetails.matches.length === 0 ? (
-            <div className="diff-placeholder">Совпадений не найдено — отчет уникален.</div>
+            <div className="diff-placeholder">
+              Совпадений среди отчетов в облачном архиве не найдено — отчет уникален.
+            </div>
           ) : (
             <div className="results-grid">
               <div className="matches-panel">
@@ -538,7 +616,7 @@ export default function HomePage() {
                 <p className="text-muted">
                   {checkDetails.matches.length}{' '}
                   {pluralize(checkDetails.matches.length, 'совпадение', 'совпадения', 'совпадений')} найдено.
-                  Выберите файл, чтобы увидеть подробный diff.
+                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть подробный diff.
                 </p>
                 <ul className="matches-list">
                   {checkDetails.matches.map((match) => {

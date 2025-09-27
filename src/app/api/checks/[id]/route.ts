@@ -22,6 +22,7 @@ export async function GET(
       reportName: report?.original_name ?? null,
       reportCloudLink: report?.cloud_link ?? null,
       reportAddedToCloud: report ? Boolean(report.added_to_cloud) : false,
+      reportPriorityIndexedAt: report?.priority_indexed_at ?? null,
     },
   });
 }

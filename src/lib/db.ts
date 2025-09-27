@@ -13,7 +13,8 @@ const createReportsTable = () => {
       text_index TEXT NOT NULL,
       created_at TEXT NOT NULL,
       cloud_link TEXT,
-      added_to_cloud INTEGER NOT NULL DEFAULT 0
+      added_to_cloud INTEGER NOT NULL DEFAULT 0,
+      priority_indexed_at TEXT
     );
   `);
 };
@@ -118,6 +119,10 @@ if (!updatedReportColumns.some((column) => column.name === 'cloud_link')) {
 
 if (!updatedReportColumns.some((column) => column.name === 'added_to_cloud')) {
   db.prepare(`ALTER TABLE reports ADD COLUMN added_to_cloud INTEGER NOT NULL DEFAULT 0`).run();
+}
+
+if (!updatedReportColumns.some((column) => column.name === 'priority_indexed_at')) {
+  db.prepare(`ALTER TABLE reports ADD COLUMN priority_indexed_at TEXT`).run();
 }
 
 // Clean up again in case a new migration produced reports_old during this execution.

@@ -13,6 +13,7 @@ export async function GET() {
       createdAt: report.created_at,
       cloudLink: report.cloud_link,
       addedToCloud: Boolean(report.added_to_cloud),
+      priorityIndexedAt: report.priority_indexed_at,
       latestCheck: latestCheck
         ? {
             id: latestCheck.id,
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     stored_name: stored.storedName,
     text_index: textIndex.index,
     cloud_link: cloudLink,
+    added_to_cloud: Boolean(cloudLink),
   });
 
   const check = queueCheck(report.id);

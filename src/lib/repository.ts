@@ -8,6 +8,7 @@ export interface ReportRecord {
   text_index: string;
   cloud_link: string | null;
   added_to_cloud: 0 | 1;
+  priority_indexed_at: string | null;
   created_at: string;
 }
 
@@ -28,6 +29,7 @@ export interface CreateReportInput {
   text_index: string;
   cloud_link?: string | null;
   added_to_cloud?: boolean;
+  priority_indexed_at?: string | null;
 }
 
 export function createReport(record: CreateReportInput): ReportRecord {
@@ -35,10 +37,20 @@ export function createReport(record: CreateReportInput): ReportRecord {
   const created_at = new Date().toISOString();
   const cloud_link = record.cloud_link ?? null;
   const added_to_cloud = record.added_to_cloud ? 1 : 0;
+  const priority_indexed_at = record.priority_indexed_at ?? null;
   db.prepare(
-    `INSERT INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, record.original_name, record.stored_name, record.text_index, created_at, cloud_link, added_to_cloud);
+    `INSERT INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud, priority_indexed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    id,
+    record.original_name,
+    record.stored_name,
+    record.text_index,
+    created_at,
+    cloud_link,
+    added_to_cloud,
+    priority_indexed_at
+  );
   return {
     id,
     original_name: record.original_name,
@@ -46,6 +58,7 @@ export function createReport(record: CreateReportInput): ReportRecord {
     text_index: record.text_index,
     cloud_link,
     added_to_cloud,
+    priority_indexed_at,
     created_at,
   };
 }
@@ -58,12 +71,24 @@ export function getReportById(id: string): ReportRecord | undefined {
   return db.prepare(`SELECT * FROM reports WHERE id = ?`).get(id) as ReportRecord | undefined;
 }
 
+export function markReportsIndexed(reportIds: string[], timestamp = new Date().toISOString()): void {
+  const uniqueIds = Array.from(new Set(reportIds));
+  if (!uniqueIds.length) {
+    return;
+  }
+  const statement = db.prepare(`UPDATE reports SET priority_indexed_at = ? WHERE id = ?`);
+  uniqueIds.forEach((reportId) => {
+    statement.run(timestamp, reportId);
+  });
+}
+
 export interface UpdateReportInput {
   original_name?: string;
   stored_name?: string;
   text_index?: string;
   cloud_link?: string | null;
   added_to_cloud?: boolean;
+  priority_indexed_at?: string | null;
 }
 
 export function updateReport(id: string, updates: UpdateReportInput): ReportRecord | undefined {
@@ -93,6 +118,11 @@ export function updateReport(id: string, updates: UpdateReportInput): ReportReco
   if (updates.added_to_cloud !== undefined) {
     fields.push('added_to_cloud = ?');
     values.push(updates.added_to_cloud ? 1 : 0);
+  }
+
+  if (updates.priority_indexed_at !== undefined) {
+    fields.push('priority_indexed_at = ?');
+    values.push(updates.priority_indexed_at);
   }
 
   if (!fields.length) {

@@ -26,6 +26,7 @@ export async function GET(
       createdAt: report.created_at,
       cloudLink: report.cloud_link,
       addedToCloud: Boolean(report.added_to_cloud),
+      priorityIndexedAt: report.priority_indexed_at,
     },
     checks: relatedChecks,
   });
@@ -86,6 +87,7 @@ export async function PATCH(
       createdAt: updated.created_at,
       cloudLink: updated.cloud_link,
       addedToCloud: Boolean(updated.added_to_cloud),
+      priorityIndexedAt: updated.priority_indexed_at,
     },
   });
 }

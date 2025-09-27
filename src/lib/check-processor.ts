@@ -1,7 +1,16 @@
 import { diffLines } from 'diff';
 import { cosineSimilarity } from './text';
 import { readReportText } from './storage';
-import { CheckRecord, createCheck, getCheckById, getReportById, listReports, updateCheck } from './repository';
+import {
+  CheckRecord,
+  ReportRecord,
+  createCheck,
+  getCheckById,
+  getReportById,
+  listReports,
+  markReportsIndexed,
+  updateCheck,
+} from './repository';
 
 export interface MatchResult {
   reportId: string;
@@ -57,34 +66,47 @@ class CheckProcessor {
     }
 
     const reportText = safeReadReportText(report.text_index);
-    const otherReports = listReports().filter((item) => item.id !== reportId);
-    const matches: MatchResult[] = otherReports.map((other) => {
-      const otherText = safeReadReportText(other.text_index);
-      const similarity = cosineSimilarity(reportText, otherText) * 100;
-      const diff = diffLines(otherText, reportText)
-        .map((segment) => {
-          const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
-          return `${prefix} ${segment.value.trim()}`;
-        })
-        .slice(0, 10)
-        .join('\n');
-      return {
-        reportId: other.id,
-        reportName: other.original_name,
-        similarity: Math.round(similarity * 100) / 100,
-        diffPreview: diff,
-      };
-    });
+    const otherReports = prioritizeReportsForCheck(
+      listReports().filter((item) => item.id !== reportId && Boolean(item.added_to_cloud))
+    );
+    const matches: MatchResult[] = otherReports
+      .map((other) => {
+        const otherText = safeReadReportText(other.text_index);
+        if (!otherText.trim()) {
+          return null;
+        }
+        const similarity = cosineSimilarity(reportText, otherText) * 100;
+        const diff = diffLines(otherText, reportText)
+          .map((segment) => {
+            const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
+            return `${prefix} ${segment.value.trim()}`;
+          })
+          .slice(0, 10)
+          .join('\n');
+        return {
+          reportId: other.id,
+          reportName: other.original_name,
+          similarity: Math.round(similarity * 100) / 100,
+          diffPreview: diff,
+        };
+      })
+      .filter((match): match is MatchResult => match !== null);
 
     matches.sort((a, b) => b.similarity - a.similarity);
     const topSimilarity = matches[0]?.similarity ?? 0;
+
+    const completedAt = new Date().toISOString();
 
     updateCheck(checkId, {
       status: 'completed',
       similarity: topSimilarity,
       matches: JSON.stringify(matches),
-      completed_at: new Date().toISOString(),
+      completed_at: completedAt,
     });
+
+    if (matches.length) {
+      markReportsIndexed([reportId, ...matches.map((match) => match.reportId)], completedAt);
+    }
   }
 }
 
@@ -127,4 +149,18 @@ export function getCheckResult(checkId: string) {
   const matches: MatchResult[] = check.matches ? JSON.parse(check.matches) : [];
   const report = getReportById(check.report_id);
   return { ...check, matches, report };
+}
+
+export function prioritizeReportsForCheck(reports: ReportRecord[]): ReportRecord[] {
+  return [...reports].sort((a, b) => {
+    const aPriority = a.priority_indexed_at ? 1 : 0;
+    const bPriority = b.priority_indexed_at ? 1 : 0;
+    if (aPriority !== bPriority) {
+      return bPriority - aPriority;
+    }
+    if (a.priority_indexed_at && b.priority_indexed_at) {
+      return b.priority_indexed_at.localeCompare(a.priority_indexed_at);
+    }
+    return b.created_at.localeCompare(a.created_at);
+  });
 }

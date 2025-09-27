@@ -62,7 +62,8 @@ describe('POST /api/reports', () => {
       stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
       cloud_link: 'https://example.com/report',
-      added_to_cloud: 0,
+      added_to_cloud: 1,
+      priority_indexed_at: null,
       created_at: '2024-01-01T00:00:00.000Z',
     });
 
@@ -105,6 +106,7 @@ describe('POST /api/reports', () => {
       stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
       cloud_link: 'https://example.com/report',
+      added_to_cloud: true,
     });
 
     expect(queueCheckMock).toHaveBeenCalledWith(storedReport.id);

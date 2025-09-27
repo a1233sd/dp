@@ -527,6 +527,12 @@ a {
   flex-wrap: wrap;
 }
 
+.cloud-panel__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 .cloud-panel__hint {
   margin: 0;
   font-size: 0.85rem;
