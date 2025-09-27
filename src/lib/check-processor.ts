@@ -114,5 +114,6 @@ export function getCheckResult(checkId: string) {
     return undefined;
   }
   const matches: MatchResult[] = check.matches ? JSON.parse(check.matches) : [];
-  return { ...check, matches };
+  const report = getReportById(check.report_id);
+  return { ...check, matches, report };
 }
