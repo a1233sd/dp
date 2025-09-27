@@ -57,24 +57,31 @@ class CheckProcessor {
     }
 
     const reportText = safeReadReportText(report.text_index);
-    const otherReports = listReports().filter((item) => item.id !== reportId);
-    const matches: MatchResult[] = otherReports.map((other) => {
-      const otherText = safeReadReportText(other.text_index);
-      const similarity = cosineSimilarity(reportText, otherText) * 100;
-      const diff = diffLines(otherText, reportText)
-        .map((segment) => {
-          const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
-          return `${prefix} ${segment.value.trim()}`;
-        })
-        .slice(0, 10)
-        .join('\n');
-      return {
-        reportId: other.id,
-        reportName: other.original_name,
-        similarity: Math.round(similarity * 100) / 100,
-        diffPreview: diff,
-      };
-    });
+    const otherReports = listReports().filter(
+      (item) => item.id !== reportId && Boolean(item.added_to_cloud)
+    );
+    const matches: MatchResult[] = otherReports
+      .map((other) => {
+        const otherText = safeReadReportText(other.text_index);
+        if (!otherText.trim()) {
+          return null;
+        }
+        const similarity = cosineSimilarity(reportText, otherText) * 100;
+        const diff = diffLines(otherText, reportText)
+          .map((segment) => {
+            const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
+            return `${prefix} ${segment.value.trim()}`;
+          })
+          .slice(0, 10)
+          .join('\n');
+        return {
+          reportId: other.id,
+          reportName: other.original_name,
+          similarity: Math.round(similarity * 100) / 100,
+          diffPreview: diff,
+        };
+      })
+      .filter((match): match is MatchResult => match !== null);
 
     matches.sort((a, b) => b.similarity - a.similarity);
     const topSimilarity = matches[0]?.similarity ?? 0;

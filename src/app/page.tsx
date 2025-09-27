@@ -50,6 +50,7 @@ export default function HomePage() {
   const [cloudLinkValue, setCloudLinkValue] = useState('');
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
 
   const loadReports = async () => {
     const response = await fetch('/api/reports');
@@ -280,10 +281,10 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="card card--hero fade-in">
         <span className="card__eyebrow">Быстрый старт</span>
-        <h2 className="card__title">Загрузите PDF и получите визуальный diff совпадений</h2>
+        <h2 className="card__title">Загрузите PDF и найдите совпадения с облачной базой</h2>
         <p className="card__subtitle">
-          DiffPress анализирует новые лабораторные отчеты, сравнивает их с базой и показывает совпадения в формате
-          git diff, чтобы сразу увидеть заимствования.
+          DiffPress анализирует новые лабораторные отчеты, сравнивает их с архивом, размещенным в облаке, и показывает совпадения
+          в формате git diff, чтобы сразу увидеть заимствования.
         </p>
         <div className="hero-actions">
           <button
@@ -294,7 +295,9 @@ export default function HomePage() {
             Загрузить PDF
           </button>
           <span className="text-muted">
-            В базе: {reports.length} {pluralize(reports.length, 'отчет', 'отчета', 'отчетов')}
+            В облачной базе:{' '}
+            {cloudReportsCount}{' '}
+            {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
           </span>
           {selectedCheckId && (
             <span className="status-chip status-chip--processing">Проверка #{selectedCheckId.slice(0, 8)}…</span>
@@ -345,7 +348,7 @@ export default function HomePage() {
               onChange={(event) => setCloudLinkValue(event.target.value)}
             />
             <span className="form-field__hint">
-              Укажите папку с исходными файлами. Мы сохраним ссылку, чтобы после проверки добавить отчет в облако.
+              Укажите папку с исходными файлами. Отчеты, помеченные как добавленные в облако, участвуют в проверках на плагиат.
             </span>
           </div>
           <div className="form-footer">
@@ -353,7 +356,7 @@ export default function HomePage() {
               {loading ? 'Отправка…' : 'Отправить на проверку'}
             </button>
             <span className="text-muted">
-              Файл сохраняется на диск, а текст индексируется для последующих проверок.
+              Проверка выполняется по архиву из облачного хранилища. Добавляйте ссылки, чтобы включить отчеты в базу.
             </span>
           </div>
         </form>
@@ -363,7 +366,9 @@ export default function HomePage() {
       <section className="card fade-in">
         <div className="card__header">
           <h3 className="card__header-title">База отчетов</h3>
-          <span className="text-muted">Выберите отчет, чтобы посмотреть последние результаты проверки.</span>
+          <span className="text-muted">
+            Отчеты с добавленной облачной ссылкой участвуют в проверках. Выберите запись, чтобы увидеть результаты.
+          </span>
         </div>
         <div className="reports-table">
           <table className="table">
@@ -373,7 +378,7 @@ export default function HomePage() {
                 <th>Дата загрузки</th>
                 <th>Статус проверки</th>
                 <th>Совпадение</th>
-                <th>Облачный диск</th>
+                <th>Облачная база</th>
                 <th></th>
               </tr>
             </thead>
@@ -417,7 +422,7 @@ export default function HomePage() {
                               report.addedToCloud ? 'status-chip--completed' : 'status-chip--muted'
                             }`}
                           >
-                            {report.addedToCloud ? 'На диске' : 'Не загружен'}
+                            {report.addedToCloud ? 'В облачной базе' : 'Не в базе'}
                           </span>
                           <button
                             type="button"
@@ -474,12 +479,12 @@ export default function HomePage() {
                   checkDetails.reportAddedToCloud ? 'status-chip--completed' : 'status-chip--muted'
                 }`}
               >
-                {checkDetails.reportAddedToCloud ? 'Отчет на диске' : 'Не загружен'}
+                {checkDetails.reportAddedToCloud ? 'Отчет в облачной базе' : 'Не в базе'}
               </span>
             </div>
             <p className="cloud-panel__description">
-              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. После завершения проверки
-              можно загрузить новый отчет в ту же папку.
+              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. Только такие отчеты попадают в облачную
+              базу для последующих проверок.
             </p>
             <div className="cloud-panel__actions">
               {checkDetails.reportCloudLink ? (
@@ -521,7 +526,7 @@ export default function HomePage() {
                   checkDetails.reportAddedToCloud
                 }
               >
-                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет на диск'}
+                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет в облако'}
               </button>
             </div>
             {!checkDetails.reportCloudLink && (
@@ -530,7 +535,9 @@ export default function HomePage() {
           </div>
 
           {checkDetails.matches.length === 0 ? (
-            <div className="diff-placeholder">Совпадений не найдено — отчет уникален.</div>
+            <div className="diff-placeholder">
+              Совпадений среди отчетов в облачном архиве не найдено — отчет уникален.
+            </div>
           ) : (
             <div className="results-grid">
               <div className="matches-panel">
@@ -538,7 +545,7 @@ export default function HomePage() {
                 <p className="text-muted">
                   {checkDetails.matches.length}{' '}
                   {pluralize(checkDetails.matches.length, 'совпадение', 'совпадения', 'совпадений')} найдено.
-                  Выберите файл, чтобы увидеть подробный diff.
+                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть подробный diff.
                 </p>
                 <ul className="matches-list">
                   {checkDetails.matches.map((match) => {
