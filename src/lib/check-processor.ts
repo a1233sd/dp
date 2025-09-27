@@ -1,5 +1,6 @@
 import { diffLines } from 'diff';
 import { cosineSimilarity } from './text';
+import { readReportText } from './storage';
 import { CheckRecord, createCheck, getCheckById, getReportById, listReports, updateCheck } from './repository';
 
 export interface MatchResult {
@@ -55,10 +56,12 @@ class CheckProcessor {
       return;
     }
 
+    const reportText = safeReadReportText(report.text_index);
     const otherReports = listReports().filter((item) => item.id !== reportId);
     const matches: MatchResult[] = otherReports.map((other) => {
-      const similarity = cosineSimilarity(report.text_content, other.text_content) * 100;
-      const diff = diffLines(other.text_content, report.text_content)
+      const otherText = safeReadReportText(other.text_index);
+      const similarity = cosineSimilarity(reportText, otherText) * 100;
+      const diff = diffLines(otherText, reportText)
         .map((segment) => {
           const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
           return `${prefix} ${segment.value.trim()}`;
@@ -82,6 +85,14 @@ class CheckProcessor {
       matches: JSON.stringify(matches),
       completed_at: new Date().toISOString(),
     });
+  }
+}
+
+function safeReadReportText(index: string): string {
+  try {
+    return readReportText(index);
+  } catch {
+    return '';
   }
 }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { persistReportFile } from '@/lib/storage';
+import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport, findLatestCheckForReport, listReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 
@@ -57,11 +57,12 @@ export async function POST(req: NextRequest) {
   }
 
   const stored = persistReportFile(buffer, file.name);
+  const textIndex = persistReportText(stored.id, pdfData.text);
   const report = createReport({
     id: stored.id,
     original_name: file.name,
     stored_name: stored.storedName,
-    text_content: pdfData.text,
+    text_index: textIndex.index,
     cloud_link: cloudLink,
   });
 

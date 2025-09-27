@@ -2,6 +2,7 @@ import { mkdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 const storageDir = resolve(process.env.REPORT_STORAGE_DIR || resolve(process.cwd(), 'storage'));
+const textIndexDir = resolve(storageDir, 'text-indexes');
 const databaseDir = resolve(process.cwd(), 'data');
 
 if (!existsSync(databaseDir)) {
@@ -12,7 +13,12 @@ if (!existsSync(storageDir)) {
   mkdirSync(storageDir, { recursive: true });
 }
 
+if (!existsSync(textIndexDir)) {
+  mkdirSync(textIndexDir, { recursive: true });
+}
+
 export const config = {
   storageDir,
+  textIndexDir,
   databasePath: resolve(databaseDir, 'reports.sqlite'),
 };
