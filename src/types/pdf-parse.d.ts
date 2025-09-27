@@ -21,3 +21,9 @@ declare module 'pdf-parse' {
     options?: PDFParseOptions
   ): Promise<PDFParseResult>;
 }
+
+declare module 'pdf-parse/lib/pdf-parse.js' {
+  import pdfParse from 'pdf-parse';
+  export * from 'pdf-parse';
+  export default pdfParse;
+}
