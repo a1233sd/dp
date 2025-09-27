@@ -48,6 +48,12 @@ export async function POST(req: NextRequest) {
   if (file.type !== 'application/pdf') {
     return NextResponse.json({ message: 'Поддерживаются только PDF файлы' }, { status: 400 });
   }
+  if (!cloudLink) {
+    return NextResponse.json(
+      { message: 'Добавьте ссылку на облачный диск, чтобы запустить проверку' },
+      { status: 400 }
+    );
+  }
 
   const arrayBuffer = await file.arrayBuffer();
   const uint8Array = new Uint8Array(arrayBuffer);

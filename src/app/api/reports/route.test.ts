@@ -136,4 +136,28 @@ describe('POST /api/reports', () => {
     expect(createReportMock).not.toHaveBeenCalled();
     expect(queueCheckMock).not.toHaveBeenCalled();
   });
+
+  it('returns 400 when cloud link is missing', async () => {
+    const file = new File(['%PDF-1.7 test content'], 'report.pdf', {
+      type: 'application/pdf',
+    });
+    const formData = new FormData();
+    formData.set('file', file);
+
+    const request = {
+      formData: vi.fn().mockResolvedValue(formData),
+    } as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Добавьте ссылку на облачный диск, чтобы запустить проверку',
+    });
+
+    expect(pdfParseMock).not.toHaveBeenCalled();
+    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(createReportMock).not.toHaveBeenCalled();
+    expect(queueCheckMock).not.toHaveBeenCalled();
+  });
 });

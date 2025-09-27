@@ -49,8 +49,11 @@ export default function HomePage() {
   const [diff, setDiff] = useState<DiffSegment[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [cloudLinkValue, setCloudLinkValue] = useState('');
+  const [cloudLinkDraft, setCloudLinkDraft] = useState('');
+  const [cloudLinkConfirmed, setCloudLinkConfirmed] = useState<string | null>(null);
+  const [cloudLinkError, setCloudLinkError] = useState<string | null>(null);
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
+  const cloudLinkInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
   const priorityIndexedCount = reports.filter((report) => Boolean(report.priorityIndexedAt)).length;
@@ -133,7 +136,12 @@ export default function HomePage() {
 
   const handleUpload = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!cloudLinkConfirmed) {
+      setError('Добавьте и подтвердите ссылку на облако перед загрузкой отчета.');
+      return;
+    }
     const formData = new FormData(event.currentTarget);
+    formData.set('cloudLink', cloudLinkConfirmed);
     const file = formData.get('file');
     if (!(file instanceof File)) {
       setError('Выберите PDF файл');
@@ -155,7 +163,10 @@ export default function HomePage() {
       await loadReports();
       event.currentTarget.reset();
       setFileName(null);
-      setCloudLinkValue('');
+      const fileInput = event.currentTarget.querySelector<HTMLInputElement>('input[name="file"]');
+      if (fileInput) {
+        fileInput.value = '';
+      }
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -165,6 +176,33 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const confirmCloudLink = () => {
+    if (!cloudLinkDraft.trim()) {
+      setCloudLinkError('Укажите ссылку на облачный диск.');
+      setCloudLinkConfirmed(null);
+      return;
+    }
+
+    try {
+      const parsed = new URL(cloudLinkDraft.trim());
+      const normalized = parsed.toString();
+      setCloudLinkDraft(normalized);
+      setCloudLinkConfirmed(normalized);
+      setCloudLinkError(null);
+      setError(null);
+    } catch {
+      setCloudLinkError('Некорректная ссылка на облачный диск.');
+      setCloudLinkConfirmed(null);
+    }
+  };
+
+  const resetCloudLink = () => {
+    setCloudLinkConfirmed(null);
+    setCloudLinkError(null);
+    setError(null);
+    setTimeout(() => cloudLinkInputRef.current?.focus(), 0);
   };
 
   const applyReportPatch = (patched: {
@@ -311,16 +349,24 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="card card--hero fade-in">
         <span className="card__eyebrow">Быстрый старт</span>
-        <h2 className="card__title">Загрузите PDF и найдите совпадения с облачной базой</h2>
+        <h2 className="card__title">Подключите облако и проверяйте отчеты на плагиат</h2>
         <p className="card__subtitle">
-          DiffPress анализирует новые лабораторные отчеты, сравнивает их с архивом, размещенным в облаке, и показывает совпадения
-          в формате git diff, чтобы сразу увидеть заимствования.
+          Сначала добавьте ссылку на облачное хранилище с эталонными материалами, затем загружайте новые PDF‑отчеты.
+          DiffPress сравнит их с облачной базой и подсветит совпадения в формате git diff.
         </p>
         <div className="hero-actions">
           <button
             type="button"
             className="button button--primary"
+            onClick={() => cloudLinkInputRef.current?.focus()}
+          >
+            Добавить ссылку на облако
+          </button>
+          <button
+            type="button"
+            className="button button--ghost"
             onClick={() => fileInputRef.current?.click()}
+            disabled={!cloudLinkConfirmed || loading}
           >
             Загрузить PDF
           </button>
@@ -348,51 +394,92 @@ export default function HomePage() {
           )}
         </div>
         <form onSubmit={handleUpload} className="upload-form">
-          <label className="dropzone">
-            <input
-              ref={fileInputRef}
-              className="dropzone__input"
-              type="file"
-              name="file"
-              accept="application/pdf"
-              required
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                setFileName(file ? file.name : null);
-              }}
-            />
-            <div className="dropzone__content">
-              <div className="dropzone__icon">⬆️</div>
-              <div className="dropzone__text">
-                {fileName ? `Выбран файл: ${fileName}` : 'Перетащите PDF или выберите файл'}
+          <input type="hidden" name="cloudLink" value={cloudLinkConfirmed ?? ''} />
+          <div className={`form-step${cloudLinkConfirmed ? ' form-step--completed' : ''}`}>
+            <div className="form-step__header">
+              <span className="form-step__number">1</span>
+              <div>
+                <h4 className="form-step__title">Добавьте ссылку на облачное хранилище</h4>
+                <p className="form-step__description">
+                  Укажите папку с архивом отчетов в облаке. Только файлы из этой папки участвуют в проверке.
+                </p>
               </div>
-              <div className="dropzone__hint">Формат PDF, текст будет извлечен автоматически</div>
             </div>
-          </label>
-          <div className="form-field">
-            <label htmlFor="cloudLink" className="form-field__label">
-              Ссылка на облачный диск
-            </label>
-            <input
-              id="cloudLink"
-              name="cloudLink"
-              className="form-field__input"
-              type="url"
-              placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
-              value={cloudLinkValue}
-              onChange={(event) => setCloudLinkValue(event.target.value)}
-            />
-            <span className="form-field__hint">
-              Укажите папку с исходными файлами. Отчеты, помеченные как добавленные в облако, участвуют в проверках на плагиат.
-            </span>
+            <div className="form-step__body">
+              <input
+                ref={cloudLinkInputRef}
+                className="form-field__input"
+                type="url"
+                placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
+                value={cloudLinkDraft}
+                onChange={(event) => {
+                  setCloudLinkDraft(event.target.value);
+                  if (cloudLinkError) {
+                    setCloudLinkError(null);
+                  }
+                }}
+                disabled={Boolean(cloudLinkConfirmed)}
+              />
+              <div className="form-step__actions">
+                {cloudLinkConfirmed ? (
+                  <button type="button" className="button button--ghost" onClick={resetCloudLink}>
+                    Изменить ссылку
+                  </button>
+                ) : (
+                  <button type="button" className="button button--primary" onClick={confirmCloudLink}>
+                    Сохранить ссылку
+                  </button>
+                )}
+              </div>
+            </div>
+            {cloudLinkError && <p className="form-step__error">{cloudLinkError}</p>}
+            {cloudLinkConfirmed && (
+              <p className="form-step__success">Ссылка сохранена. Теперь можно загружать отчеты для проверки.</p>
+            )}
           </div>
-          <div className="form-footer">
-            <button type="submit" className="button button--primary" disabled={loading}>
-              {loading ? 'Отправка…' : 'Отправить на проверку'}
-            </button>
-            <span className="text-muted">
-              Проверка выполняется по архиву из облачного хранилища. Добавляйте ссылки, чтобы включить отчеты в базу.
-            </span>
+          <div
+            className={`form-step${cloudLinkConfirmed ? ' form-step--enabled' : ' form-step--disabled'}`}
+            aria-disabled={!cloudLinkConfirmed}
+          >
+            <div className="form-step__header">
+              <span className="form-step__number">2</span>
+              <div>
+                <h4 className="form-step__title">Загрузите PDF для проверки</h4>
+                <p className="form-step__description">
+                  Файл будет проверен на плагиат среди материалов по указанной ссылке.
+                </p>
+              </div>
+            </div>
+            <label className={`dropzone${!cloudLinkConfirmed ? ' dropzone--disabled' : ''}`}>
+              <input
+                ref={fileInputRef}
+                className="dropzone__input"
+                type="file"
+                name="file"
+                accept="application/pdf"
+                required
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  setFileName(file ? file.name : null);
+                }}
+                disabled={!cloudLinkConfirmed || loading}
+              />
+              <div className="dropzone__content">
+                <div className="dropzone__icon">⬆️</div>
+                <div className="dropzone__text">
+                  {fileName ? `Выбран файл: ${fileName}` : 'Перетащите PDF или выберите файл'}
+                </div>
+                <div className="dropzone__hint">Формат PDF, текст будет извлечен автоматически</div>
+              </div>
+            </label>
+            <div className="form-footer">
+              <button type="submit" className="button button--primary" disabled={loading || !cloudLinkConfirmed}>
+                {loading ? 'Отправка…' : 'Отправить на проверку'}
+              </button>
+              <span className="text-muted">
+                Проверка выполняется только по архиву из облачного хранилища. Добавьте ссылку и загружайте новые отчеты.
+              </span>
+            </div>
           </div>
         </form>
         {error && <p className="error-banner">{error}</p>}

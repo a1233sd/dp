@@ -4,6 +4,7 @@
   --color-slate-950: #020617;
   --color-slate-900: #0f172a;
   --color-slate-700: #334155;
+  --color-slate-600: #475569;
   --color-slate-500: #64748b;
   --color-slate-300: #cbd5f5;
   --color-slate-200: #e2e8f0;
@@ -273,6 +274,89 @@ a {
   gap: 1.2rem;
 }
 
+.form-step {
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 1rem;
+  padding: 1.4rem 1.6rem;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.form-step--completed {
+  border-color: rgba(37, 99, 235, 0.4);
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.12);
+}
+
+.form-step--enabled {
+  border-color: rgba(37, 99, 235, 0.32);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.1);
+}
+
+.form-step--disabled {
+  opacity: 0.6;
+}
+
+.form-step__header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.form-step__number {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  color: var(--color-accent);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.form-step__title {
+  margin: 0 0 0.3rem;
+  font-size: 1.1rem;
+}
+
+.form-step__description {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-slate-600);
+}
+
+.form-step__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.form-step__body .form-field__input {
+  flex: 1 1 16rem;
+  min-width: min(24rem, 100%);
+}
+
+.form-step__actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.form-step__error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-danger);
+}
+
+.form-step__success {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-success);
+}
+
 .dropzone {
   position: relative;
   border: 2px dashed rgba(37, 99, 235, 0.3);
@@ -292,11 +376,20 @@ a {
   transform: translateY(-1px);
 }
 
+.dropzone--disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
 .dropzone__input {
   position: absolute;
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.dropzone--disabled .dropzone__input {
+  cursor: not-allowed;
 }
 
 .dropzone__content {
