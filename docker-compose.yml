@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  diffpress:
+    build: .
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      - REPORT_STORAGE_DIR=/data/reports
+    volumes:
+      - ./storage:/data/reports
+      - ./data:/app/data
+    restart: unless-stopped
