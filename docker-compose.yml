@@ -3,10 +3,31 @@ services:
   diffpress:
     build: .
     ports:
-      - '${PORT:-3000}:3000'
+      - "${PORT:-3000}:3000"
     environment:
       - REPORT_STORAGE_DIR=/data/reports
     volumes:
       - ./storage:/data/reports
       - ./data:/app/data
+    depends_on:
+      - sqlite
+    restart: unless-stopped
+
+  sqlite:
+    image: nouchka/sqlite3:latest
+    command: tail -f /dev/null
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  sqlite-ui:
+    image: coleifer/sqlite-web:latest
+    depends_on:
+      - sqlite
+    environment:
+      - SQLITE_DATABASE=/data/reports.sqlite
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
     restart: unless-stopped
