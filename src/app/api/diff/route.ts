@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { diffLines } from 'diff';
 import { getReportById } from '@/lib/repository';
+import { readReportText } from '@/lib/storage';
 
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
@@ -15,7 +16,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ message: 'Отчет не найден' }, { status: 404 });
   }
 
-  const diff = diffLines(source.text_content, target.text_content).map((part) => ({
+  const sourceText = safeReadReportText(source.text_index);
+  const targetText = safeReadReportText(target.text_index);
+
+  const diff = diffLines(sourceText, targetText).map((part) => ({
     added: !!part.added,
     removed: !!part.removed,
     value: part.value,
@@ -32,4 +36,12 @@ export async function GET(req: NextRequest) {
     },
     diff,
   });
+}
+
+function safeReadReportText(index: string): string {
+  try {
+    return readReportText(index);
+  } catch {
+    return '';
+  }
 }

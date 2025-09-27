@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 
 vi.mock('@/lib/storage', () => ({
   persistReportFile: vi.fn(),
+  persistReportText: vi.fn(),
 }));
 
 vi.mock('@/lib/repository', () => ({
@@ -20,7 +21,7 @@ vi.mock('pdf-parse', () => ({
 }));
 
 import { POST } from './route';
-import { persistReportFile } from '@/lib/storage';
+import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import pdfParse from 'pdf-parse';
@@ -29,6 +30,7 @@ const persistReportFileMock = vi.mocked(persistReportFile);
 const createReportMock = vi.mocked(createReport);
 const queueCheckMock = vi.mocked(queueCheck);
 const pdfParseMock = vi.mocked(pdfParse);
+const persistReportTextMock = vi.mocked(persistReportText);
 
 describe('POST /api/reports', () => {
   beforeEach(() => {
@@ -49,12 +51,16 @@ describe('POST /api/reports', () => {
       absolutePath: '/tmp/report-123.pdf',
     };
     persistReportFileMock.mockReturnValue(storedReport);
+    persistReportTextMock.mockReturnValue({
+      index: 'report-123.txt',
+      absolutePath: '/tmp/report-123.txt',
+    });
 
     createReportMock.mockReturnValue({
       id: storedReport.id,
       original_name: file.name,
       stored_name: storedReport.storedName,
-      text_content: 'parsed text',
+      text_index: 'report-123.txt',
       cloud_link: 'https://example.com/report',
       added_to_cloud: 0,
       created_at: '2024-01-01T00:00:00.000Z',
@@ -91,11 +97,13 @@ describe('POST /api/reports', () => {
     expect(persistReportFileMock.mock.calls[0][0]).toBeInstanceOf(Buffer);
     expect(persistReportFileMock.mock.calls[0][1]).toBe('report.pdf');
 
+    expect(persistReportTextMock).toHaveBeenCalledWith(storedReport.id, 'parsed text');
+
     expect(createReportMock).toHaveBeenCalledWith({
       id: storedReport.id,
       original_name: 'report.pdf',
       stored_name: storedReport.storedName,
-      text_content: 'parsed text',
+      text_index: 'report-123.txt',
       cloud_link: 'https://example.com/report',
     });
 
