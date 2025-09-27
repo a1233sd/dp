@@ -38,6 +38,20 @@ createChecksTable();
 
 type TableColumn = { name: string };
 type TableName = { name: string };
+type SqliteError = Error & { code?: string };
+
+const isMissingReportsOldError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const withCode = error as SqliteError;
+  if (withCode.code !== 'SQLITE_ERROR') {
+    return false;
+  }
+
+  return error.message.includes('reports_old');
+};
 
 const reportsOldExists = (): boolean => {
   const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as TableName[];
@@ -45,28 +59,37 @@ const reportsOldExists = (): boolean => {
 };
 
 const migrateReportsOldTable = () => {
-  if (!reportsOldExists()) {
-    return;
+  try {
+    if (!reportsOldExists()) {
+      return;
+    }
+
+    // Ensure the target table exists after a rename.
+    createReportsTable();
+
+    const legacyColumns = db.prepare(`PRAGMA table_info(reports_old)`).all() as TableColumn[];
+    const hasLegacyTextIndex = legacyColumns.some((column) => column.name === 'text_index');
+    const hasLegacyCloudLink = legacyColumns.some((column) => column.name === 'cloud_link');
+    const hasLegacyAddedToCloud = legacyColumns.some((column) => column.name === 'added_to_cloud');
+
+    const textIndexSelect = hasLegacyTextIndex ? 'text_index' : "''";
+    const cloudLinkSelect = hasLegacyCloudLink ? 'cloud_link' : 'NULL';
+    const addedToCloudSelect = hasLegacyAddedToCloud ? 'added_to_cloud' : '0';
+
+    db.exec(`
+      INSERT OR REPLACE INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud)
+      SELECT id, original_name, stored_name, ${textIndexSelect} AS text_index, created_at, ${cloudLinkSelect} AS cloud_link, ${addedToCloudSelect} AS added_to_cloud
+      FROM reports_old;
+    `);
+
+    db.exec('DROP TABLE IF EXISTS reports_old;');
+  } catch (error) {
+    if (isMissingReportsOldError(error)) {
+      return;
+    }
+
+    throw error;
   }
-
-  // Ensure the target table exists after a rename.
-  createReportsTable();
-
-  const legacyColumns = db.prepare(`PRAGMA table_info(reports_old)`).all() as TableColumn[];
-  const hasLegacyTextIndex = legacyColumns.some((column) => column.name === 'text_index');
-  const hasLegacyCloudLink = legacyColumns.some((column) => column.name === 'cloud_link');
-  const hasLegacyAddedToCloud = legacyColumns.some((column) => column.name === 'added_to_cloud');
-
-  const textIndexSelect = hasLegacyTextIndex ? 'text_index' : "''";
-  const cloudLinkSelect = hasLegacyCloudLink ? 'cloud_link' : 'NULL';
-  const addedToCloudSelect = hasLegacyAddedToCloud ? 'added_to_cloud' : '0';
-
-  db.exec(`
-    INSERT OR REPLACE INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud)
-    SELECT id, original_name, stored_name, ${textIndexSelect} AS text_index, created_at, ${cloudLinkSelect} AS cloud_link, ${addedToCloudSelect} AS added_to_cloud
-    FROM reports_old;
-    DROP TABLE reports_old;
-  `);
 };
 
 // If a previous migration failed we may still have a legacy table.
