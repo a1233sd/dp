@@ -38,6 +38,7 @@ createChecksTable();
 
 type TableColumn = { name: string };
 type TableName = { name: string };
+type ForeignKey = { table: string };
 type SqliteError = Error & { code?: string };
 
 const isMissingReportsOldError = (error: unknown): boolean => {
@@ -94,6 +95,21 @@ const migrateReportsOldTable = () => {
 
 // If a previous migration failed we may still have a legacy table.
 migrateReportsOldTable();
+
+const checksForeignKeys = db.prepare(`PRAGMA foreign_key_list(checks)`).all() as ForeignKey[];
+
+const checksReferencesReportsOld = checksForeignKeys.some((foreignKey) => foreignKey.table === 'reports_old');
+
+if (checksReferencesReportsOld) {
+  db.exec(`ALTER TABLE checks RENAME TO checks_old;`);
+  createChecksTable();
+  db.exec(`
+    INSERT OR REPLACE INTO checks (id, report_id, status, similarity, matches, created_at, completed_at)
+    SELECT id, report_id, status, similarity, matches, created_at, completed_at
+    FROM checks_old;
+  `);
+  db.exec('DROP TABLE IF EXISTS checks_old;');
+}
 
 const reportColumns = db.prepare(`PRAGMA table_info(reports)`).all() as TableColumn[];
 
