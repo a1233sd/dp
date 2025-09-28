@@ -852,9 +852,7 @@ a {
 }
 
 .diff-line {
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  gap: 0.8rem;
+  display: block;
   padding: 0.4rem 0.55rem;
   border-radius: 0.6rem;
   line-height: 1.45;
@@ -875,11 +873,6 @@ a {
 
 .diff-line--context:hover {
   background: rgba(148, 163, 184, 0.15);
-}
-
-.diff-line__prefix {
-  font-weight: 700;
-  color: rgba(226, 232, 240, 0.72);
 }
 
 .diff-line__content {
