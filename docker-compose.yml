@@ -1,5 +1,17 @@
 version: '3.8'
 services:
+  migrate:
+    build: .
+    command: ["npm", "run", "migrate"]
+    environment:
+      - REPORT_STORAGE_DIR=/data/reports
+    volumes:
+      - ./storage:/data/reports
+      - ./data:/app/data
+    depends_on:
+      - sqlite
+    restart: "no"
+
   diffpress:
     build: .
     ports:
@@ -10,7 +22,8 @@ services:
       - ./storage:/data/reports
       - ./data:/app/data
     depends_on:
-      - sqlite
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   sqlite:
@@ -23,7 +36,8 @@ services:
   sqlite-ui:
     image: coleifer/sqlite-web:latest
     depends_on:
-      - sqlite
+      migrate:
+        condition: service_completed_successfully
     environment:
       - SQLITE_DATABASE=/data/reports.sqlite
     ports:
