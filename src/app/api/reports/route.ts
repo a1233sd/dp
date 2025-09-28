@@ -4,6 +4,7 @@ import { createReport, findLatestCheckForReport, listReports } from '@/lib/repos
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
+import { CloudLinkValidationError, normalizeCloudLink } from '@/lib/cloud-link';
 
 export async function GET() {
   const reports = listReports().map((report) => {
@@ -34,10 +35,12 @@ export async function POST(req: NextRequest) {
 
   if (typeof cloudLinkRaw === 'string' && cloudLinkRaw.trim()) {
     try {
-      const parsed = new URL(cloudLinkRaw.trim());
-      cloudLink = parsed.toString();
-    } catch {
-      return NextResponse.json({ message: 'Некорректная ссылка на облачный диск' }, { status: 400 });
+      cloudLink = normalizeCloudLink(cloudLinkRaw);
+    } catch (error) {
+      if (error instanceof CloudLinkValidationError) {
+        return NextResponse.json({ message: error.message }, { status: 400 });
+      }
+      throw error;
     }
   } else {
     return NextResponse.json({ message: 'Ссылка на облачное хранилище обязательна' }, { status: 400 });

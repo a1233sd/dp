@@ -26,6 +26,13 @@ interface SyncResult {
   errors: string[];
 }
 
+export type CloudPreviewStatus = 'new' | 'existing' | 'pending';
+
+export interface CloudPreviewItem {
+  name: string;
+  status: CloudPreviewStatus;
+}
+
 const PDF_EXTENSION_REGEX = /\.pdf(?:$|[?#])/i;
 
 function guessFileName(sourceUrl: string): string {
@@ -118,6 +125,37 @@ async function parseListingResponse(cloudLink: string): Promise<CloudResource[]>
   }
 
   return Array.from(resources.values());
+}
+
+function resolvePreviewStatus(cloudLink: string, resource: CloudResource): CloudPreviewStatus {
+  const existing = findReportByCloudLinkAndName(cloudLink, resource.name);
+  if (!existing) {
+    return 'new';
+  }
+  return existing.added_to_cloud ? 'existing' : 'pending';
+}
+
+export async function inspectCloudStorage(cloudLink: string): Promise<CloudPreviewItem[]> {
+  const resources = await parseListingResponse(cloudLink);
+  const unique = new Map<string, CloudPreviewItem>();
+  for (const resource of resources) {
+    const status = resolvePreviewStatus(cloudLink, resource);
+    if (!unique.has(resource.name)) {
+      unique.set(resource.name, { name: resource.name, status });
+      continue;
+    }
+    const current = unique.get(resource.name);
+    if (!current) {
+      continue;
+    }
+    if (current.status === 'new' && status !== 'new') {
+      unique.set(resource.name, { name: resource.name, status });
+    }
+    if (current.status === 'pending' && status === 'existing') {
+      unique.set(resource.name, { name: resource.name, status });
+    }
+  }
+  return Array.from(unique.values());
 }
 
 async function downloadResource(resource: CloudResource): Promise<ArrayBuffer> {

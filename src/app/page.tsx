@@ -37,6 +37,11 @@ interface MatchResult {
   diffPreview: string;
 }
 
+interface CloudPreviewItem {
+  name: string;
+  status: 'new' | 'existing' | 'pending';
+}
+
 export default function HomePage() {
   const [reports, setReports] = useState<ReportListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,6 +55,8 @@ export default function HomePage() {
   const [cloudLinkInput, setCloudLinkInput] = useState('');
   const [cloudLink, setCloudLink] = useState<string | null>(null);
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
+  const [cloudPreview, setCloudPreview] = useState<CloudPreviewItem[] | null>(null);
+  const [cloudPreviewLoading, setCloudPreviewLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cloudInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
@@ -182,20 +189,46 @@ export default function HomePage() {
     }
   };
 
-  const confirmCloudLink = () => {
+  const confirmCloudLink = async () => {
     const trimmed = cloudLinkInput.trim();
     if (!trimmed) {
       setError('Введите ссылку на облачное хранилище.');
       return;
     }
+    setCloudPreview(null);
+    setCloudPreviewLoading(true);
+    setError(null);
     try {
-      const parsed = new URL(trimmed);
-      const normalized = parsed.toString();
-      setCloudLink(normalized);
-      setCloudLinkInput(normalized);
-      setError(null);
-    } catch {
-      setError('Некорректная ссылка на облачное хранилище.');
+      const response = await fetch('/api/cloud/scan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cloudLink: trimmed }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = (payload as { message?: string }).message ?? 'Не удалось просканировать облако';
+        throw new Error(message);
+      }
+      const normalized = (payload as { cloudLink?: string }).cloudLink;
+      const resources = Array.isArray((payload as { resources?: unknown }).resources)
+        ? ((payload as { resources: CloudPreviewItem[] }).resources)
+        : [];
+      const resolvedLink = normalized ?? trimmed;
+      setCloudLink(resolvedLink);
+      setCloudLinkInput(resolvedLink);
+      setCloudPreview(resources);
+    } catch (err) {
+      setCloudLink(null);
+      setCloudPreview(null);
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Неизвестная ошибка при проверке облака.');
+      }
+    } finally {
+      setCloudPreviewLoading(false);
     }
   };
 
@@ -396,6 +429,7 @@ export default function HomePage() {
                       onClick={() => {
                         setCloudLink(null);
                         setError(null);
+                        setCloudPreview(null);
                         setTimeout(() => {
                           cloudInputRef.current?.focus();
                         }, 0);
@@ -404,12 +438,45 @@ export default function HomePage() {
                       Изменить ссылку
                     </button>
                   ) : (
-                    <button type="button" className="button button--primary" onClick={confirmCloudLink}>
+                    <button
+                      type="button"
+                      className="button button--primary"
+                      onClick={() => {
+                        confirmCloudLink();
+                      }}
+                      disabled={cloudPreviewLoading}
+                    >
                       Добавить ссылку
                     </button>
                   )}
                 </div>
               </div>
+              {cloudPreviewLoading ? (
+                <div className="cloud-preview cloud-preview--loading">
+                  <p className="loading-pulse">Сканирование облака…</p>
+                </div>
+              ) : cloudPreview && cloudPreview.length ? (
+                <div className="cloud-preview fade-in">
+                  <div className="cloud-preview__header">
+                    <h5 className="cloud-preview__title">Найденные файлы</h5>
+                    <span className="cloud-preview__count">
+                      {cloudPreview.length}{' '}
+                      {pluralize(cloudPreview.length, 'файл', 'файла', 'файлов')}
+                    </span>
+                  </div>
+                  <ul className="cloud-preview__list">
+                    {cloudPreview.map((item) => (
+                      <li key={`${item.name}:${item.status}`} className="cloud-preview__item">
+                        <span className="cloud-preview__name">{item.name}</span>
+                        <span className={`cloud-preview__badge cloud-preview__badge--${item.status}`}>
+                          {cloudPreviewStatusLabel(item.status)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="cloud-preview__hint">Эти файлы будут использованы для сравнения при проверке новых отчетов.</p>
+                </div>
+              ) : null}
             </div>
             <div className="upload-step">
               <div className="upload-step__header">
@@ -708,6 +775,18 @@ function statusLabel(status: string) {
       return 'Ошибка';
     default:
       return status;
+  }
+}
+
+function cloudPreviewStatusLabel(status: CloudPreviewItem['status']) {
+  switch (status) {
+    case 'existing':
+      return 'Уже в базе';
+    case 'pending':
+      return 'Будет активирован';
+    case 'new':
+    default:
+      return 'Новый файл';
   }
 }
 

@@ -32,19 +32,19 @@ describe('PATCH /api/reports/[id]', () => {
 
   it('automatically marks report as added to cloud when link is provided', async () => {
     const request = {
-      json: vi.fn().mockResolvedValue({ cloudLink: 'https://example.com/folder' }),
+      json: vi.fn().mockResolvedValue({ cloudLink: 'https://disk.yandex.ru/d/folder' }),
     } as unknown as NextRequest;
 
     updateReportMock.mockReturnValue({
       ...baseReport,
-      cloud_link: 'https://example.com/folder',
+      cloud_link: 'https://disk.yandex.ru/d/folder',
       added_to_cloud: 1,
     });
 
     const response = await PATCH(request, { params: { id: baseReport.id } });
 
     expect(updateReportMock).toHaveBeenCalledWith(baseReport.id, {
-      cloud_link: 'https://example.com/folder',
+      cloud_link: 'https://disk.yandex.ru/d/folder',
       added_to_cloud: true,
     });
 
@@ -54,7 +54,7 @@ describe('PATCH /api/reports/[id]', () => {
         id: baseReport.id,
         originalName: baseReport.original_name,
         createdAt: baseReport.created_at,
-        cloudLink: 'https://example.com/folder',
+        cloudLink: 'https://disk.yandex.ru/d/folder',
         addedToCloud: true,
       },
     });
@@ -63,7 +63,7 @@ describe('PATCH /api/reports/[id]', () => {
   it('unmarks report when cloud link is cleared', async () => {
     getReportByIdMock.mockReturnValueOnce({
       ...baseReport,
-      cloud_link: 'https://example.com/folder',
+      cloud_link: 'https://disk.yandex.ru/d/folder',
       added_to_cloud: 1,
     });
 
