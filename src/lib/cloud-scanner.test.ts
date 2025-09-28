@@ -15,7 +15,7 @@ vi.mock('./repository', () => ({
   updateReport: vi.fn(),
 }));
 
-import { syncCloudStorage } from './cloud-scanner';
+import { inspectCloudStorage, syncCloudStorage } from './cloud-scanner';
 import { parsePdf } from './pdf-parser';
 import { persistReportFile, persistReportText } from './storage';
 import { createReport, findReportByCloudLinkAndName } from './repository';
@@ -99,5 +99,43 @@ describe('cloud-scanner', () => {
         headers: expect.any(Headers),
       }),
     );
+  });
+
+  it('extracts files from a Cloud Mail.ru folder page without direct anchors', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch as unknown as ReturnType<typeof vi.fn>);
+
+    const htmlResponse = {
+      ok: true,
+      headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+      url: 'https://cloud.mail.ru/public/example/folder',
+      text: async () => `
+        <script>
+          window.__NUXT__ = {
+            state: {
+              list: [
+                { name: 'folder-report.pdf', href: '/public/example/folder/folder-report.pdf' },
+                { name: 'another.pdf', href: '/public/example/folder/another.pdf' }
+              ]
+            }
+          };
+        </script>
+      `,
+    };
+
+    fetchMock.mockResolvedValueOnce(htmlResponse as any);
+    vi.mocked(findReportByCloudLinkAndName).mockReturnValue(null);
+
+    const items = await inspectCloudStorage('https://cloud.mail.ru/public/example/folder');
+
+    expect(items).toEqual([
+      {
+        name: 'folder-report.pdf',
+        status: 'new',
+      },
+      {
+        name: 'another.pdf',
+        status: 'new',
+      },
+    ]);
   });
 });
