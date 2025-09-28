@@ -470,7 +470,7 @@ export default function HomePage() {
                 <p className="text-muted">
                   {checkDetails.matches.length}{' '}
                   {pluralize(checkDetails.matches.length, 'совпадение', 'совпадения', 'совпадений')} найдено.
-                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть подробный diff.
+                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть совпавшие фрагменты.
                 </p>
                 <ul className="matches-list">
                   {checkDetails.matches.map((match) => {
@@ -508,7 +508,7 @@ export default function HomePage() {
                   <DiffViewer segments={diff} />
                 ) : (
                   <div className="diff-placeholder">
-                    Выберите совпадение слева, чтобы увидеть детальное сравнение в стиле git diff.
+                    Выберите совпадение слева, чтобы увидеть совпавшие фрагменты двух отчетов.
                   </div>
                 )}
               </div>
