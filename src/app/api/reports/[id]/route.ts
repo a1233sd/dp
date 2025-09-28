@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getReportById, listChecks, updateReport } from '@/lib/repository';
+import { CloudLinkValidationError, normalizeCloudLink } from '@/lib/cloud-link';
 
 export async function GET(
   _req: NextRequest,
@@ -48,13 +49,15 @@ export async function PATCH(
     const value = body.cloudLink;
     if (typeof value === 'string' && value.trim()) {
       try {
-        const parsed = new URL(value.trim());
-        updates.cloud_link = parsed.toString();
+        updates.cloud_link = normalizeCloudLink(value);
         if (!hasExplicitAddedFlag) {
           updates.added_to_cloud = true;
         }
-      } catch {
-        return NextResponse.json({ message: 'Некорректная ссылка на облачный диск' }, { status: 400 });
+      } catch (error) {
+        if (error instanceof CloudLinkValidationError) {
+          return NextResponse.json({ message: error.message }, { status: 400 });
+        }
+        throw error;
       }
     } else if (value === null || value === '') {
       updates.cloud_link = null;

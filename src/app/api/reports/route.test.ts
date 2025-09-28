@@ -51,7 +51,7 @@ describe('POST /api/reports', () => {
     });
     const formData = new FormData();
     formData.set('file', file);
-    formData.set('cloudLink', 'https://example.com/report');
+    formData.set('cloudLink', 'https://disk.yandex.ru/d/report');
 
     const storedReport = {
       id: 'report-123',
@@ -69,7 +69,7 @@ describe('POST /api/reports', () => {
       original_name: file.name,
       stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
-      cloud_link: 'https://example.com/report',
+      cloud_link: 'https://disk.yandex.ru/d/report',
       added_to_cloud: 0,
       created_at: '2024-01-01T00:00:00.000Z',
     });
@@ -112,11 +112,11 @@ describe('POST /api/reports', () => {
       original_name: 'report.pdf',
       stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
-      cloud_link: 'https://example.com/report',
+      cloud_link: 'https://disk.yandex.ru/d/report',
     });
 
     expect(queueCheckMock).toHaveBeenCalledWith(storedReport.id);
-    expect(syncCloudStorageMock).toHaveBeenCalledWith('https://example.com/report');
+    expect(syncCloudStorageMock).toHaveBeenCalledWith('https://disk.yandex.ru/d/report');
   });
 
   it('supports uploading multiple PDF files at once', async () => {
@@ -126,7 +126,7 @@ describe('POST /api/reports', () => {
     ];
     const formData = new FormData();
     files.forEach((file) => formData.append('files', file));
-    formData.set('cloudLink', 'https://example.com/report');
+    formData.set('cloudLink', 'https://disk.yandex.ru/d/report');
 
     persistReportFileMock
       .mockReturnValueOnce({
@@ -150,7 +150,7 @@ describe('POST /api/reports', () => {
         original_name: 'first.pdf',
         stored_name: 'report-1.pdf',
         text_index: 'report-1.txt',
-        cloud_link: 'https://example.com/report',
+        cloud_link: 'https://disk.yandex.ru/d/report',
         added_to_cloud: 0,
         created_at: '2024-01-01T00:00:00.000Z',
       })
@@ -159,7 +159,7 @@ describe('POST /api/reports', () => {
         original_name: 'second.pdf',
         stored_name: 'report-2.pdf',
         text_index: 'report-2.txt',
-        cloud_link: 'https://example.com/report',
+        cloud_link: 'https://disk.yandex.ru/d/report',
         added_to_cloud: 0,
         created_at: '2024-01-01T00:00:10.000Z',
       });
@@ -231,6 +231,31 @@ describe('POST /api/reports', () => {
     expect(queueCheckMock).not.toHaveBeenCalled();
   });
 
+  it('returns 400 when cloud host is unsupported', async () => {
+    const file = new File(['%PDF-1.7 test content'], 'report.pdf', {
+      type: 'application/pdf',
+    });
+    const formData = new FormData();
+    formData.set('file', file);
+    formData.set('cloudLink', 'https://example.com/report');
+
+    const request = {
+      formData: vi.fn().mockResolvedValue(formData),
+    } as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Ссылка должна вести на поддерживаемое облачное хранилище',
+    });
+
+    expect(pdfParseMock).not.toHaveBeenCalled();
+    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(createReportMock).not.toHaveBeenCalled();
+    expect(queueCheckMock).not.toHaveBeenCalled();
+  });
+
   it('returns 400 when cloud link is missing', async () => {
     const file = new File(['%PDF-1.7 test content'], 'report.pdf', {
       type: 'application/pdf',
@@ -259,7 +284,7 @@ describe('POST /api/reports', () => {
     });
     const formData = new FormData();
     formData.set('file', file);
-    formData.set('cloudLink', 'https://example.com/folder');
+    formData.set('cloudLink', 'https://disk.yandex.ru/d/folder');
 
     pdfParseMock.mockRejectedValue(new Error('Invalid PDF structure.'));
 
@@ -286,7 +311,7 @@ describe('POST /api/reports', () => {
     });
     const formData = new FormData();
     formData.set('file', file);
-    formData.set('cloudLink', 'https://example.com/report');
+    formData.set('cloudLink', 'https://disk.yandex.ru/d/report');
 
     syncCloudStorageMock.mockRejectedValueOnce(new CloudSyncError('Cloud validation error'));
 
@@ -307,7 +332,7 @@ describe('POST /api/reports', () => {
     });
     const formData = new FormData();
     formData.set('file', file);
-    formData.set('cloudLink', 'https://example.com/report');
+    formData.set('cloudLink', 'https://disk.yandex.ru/d/report');
 
     syncCloudStorageMock.mockRejectedValueOnce(new Error('network down'));
 
