@@ -4,7 +4,7 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'DiffPress - Антиплагиат отчетов',
   description:
-    'Система проверки студенческих отчетов на совпадения с существующей базой с визуализацией диффа.',
+    'Система проверки студенческих отчетов на совпадения с существующей базой с подсветкой совпадающих фрагментов.',
 };
 
 export default function RootLayout({
@@ -20,9 +20,7 @@ export default function RootLayout({
             <div className="app-header__content">
               <div className="app-branding">
                 <span className="app-logo">DiffPress</span>
-                <p className="app-subtitle">
-                  Визуальный антиплагиат и сравнение отчетов в стиле git diff
-                </p>
+                <p className="app-subtitle">Визуальный антиплагиат с подсветкой совпадающих фрагментов</p>
               </div>
               <span className="app-badge">beta</span>
             </div>
