@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { config } from './config';
 
 const db = new Database(config.databasePath);
+db.pragma('busy_timeout = 5000');
 db.pragma('journal_mode = WAL');
 
 const createReportsTable = () => {
