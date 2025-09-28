@@ -13,7 +13,6 @@ export function DiffViewer({ segments }: { segments: DiffSegment[] }) {
   return (
     <div className="diff-viewer" aria-live="polite">
       {segments.map((segment, index) => {
-        const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
         const isMatch = !segment.added && !segment.removed;
         const lineClass = [
           'diff-line',
@@ -26,7 +25,6 @@ export function DiffViewer({ segments }: { segments: DiffSegment[] }) {
           .join(' ');
         return (
           <div key={index} className={lineClass}>
-            <span className="diff-line__prefix">{prefix}</span>
             <pre className="diff-line__content">{segment.value}</pre>
           </div>
         );
