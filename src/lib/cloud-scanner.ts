@@ -53,8 +53,28 @@ function normaliseUrl(base: string, value: string): string {
   return new URL(value, base).toString();
 }
 
+const BROWSER_FETCH_HEADERS: Record<string, string> = {
+  'user-agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+};
+
+function mergeBrowserHeaders(init?: RequestInit): RequestInit {
+  const headers = new Headers(init?.headers ?? {});
+  for (const [key, value] of Object.entries(BROWSER_FETCH_HEADERS)) {
+    if (!headers.has(key)) {
+      headers.set(key, value);
+    }
+  }
+  return { ...init, headers };
+}
+
+async function fetchWithBrowserHeaders(input: RequestInfo | URL, init?: RequestInit) {
+  return fetch(input, mergeBrowserHeaders(init));
+}
+
 async function parseListingResponse(cloudLink: string): Promise<CloudResource[]> {
-  const response = await fetch(cloudLink);
+  const response = await fetchWithBrowserHeaders(cloudLink);
   if (!response.ok) {
     throw new CloudSyncError('Не удалось получить список файлов из облака');
   }
@@ -165,7 +185,11 @@ async function downloadResource(resource: CloudResource): Promise<ArrayBuffer> {
   if (!resource.url) {
     throw new CloudSyncError('Ссылка на файл из облака отсутствует');
   }
-  const response = await fetch(resource.url);
+  const response = await fetchWithBrowserHeaders(resource.url, {
+    headers: {
+      accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+    },
+  });
   if (!response.ok) {
     throw new CloudSyncError(`Не удалось скачать файл из облака: ${resource.name}`);
   }
