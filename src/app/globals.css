@@ -887,6 +887,13 @@ a {
   white-space: pre-wrap;
 }
 
+.diff-line--match .diff-line__content {
+  text-decoration-line: underline;
+  text-decoration-color: #ef4444;
+  text-decoration-thickness: 0.12em;
+  text-decoration-skip-ink: none;
+}
+
 .loading-pulse {
   text-align: center;
   color: var(--color-slate-500);

@@ -14,11 +14,13 @@ export function DiffViewer({ segments }: { segments: DiffSegment[] }) {
     <div className="diff-viewer" aria-live="polite">
       {segments.map((segment, index) => {
         const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
+        const isMatch = !segment.added && !segment.removed;
         const lineClass = [
           'diff-line',
           segment.added && 'diff-line--added',
           segment.removed && 'diff-line--removed',
-          !segment.added && !segment.removed && 'diff-line--context',
+          isMatch && 'diff-line--match',
+          isMatch && 'diff-line--context',
         ]
           .filter(Boolean)
           .join(' ');
