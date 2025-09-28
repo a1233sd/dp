@@ -3,38 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "tsx scripts/reset-db.ts",
     "dev": "next dev",
-    "prebuild": "tsx scripts/reset-db.ts",
     "build": "next build",
-    "prestart": "tsx scripts/reset-db.ts",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run",
-    "premigrate": "tsx scripts/reset-db.ts",
-    "migrate": "tsx scripts/migrate-db.ts"
+    "test": "vitest run"
   },
   "dependencies": {
-    "@types/string-similarity": "^4.0.2",
-    "better-sqlite3": "^9.0.0",
-    "diff-match-patch": "^1.0.5",
     "next": "14.1.0",
-    "pdf-parse": "^1.1.1",
-    "pdfjs-dist": "^4.6.82",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "string-similarity": "^4.0.4",
-    "zod": "^3.22.2"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/diff-match-patch": "^1.0.36",
     "@types/node": "^20.10.5",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "eslint": "^8.54.0",
     "eslint-config-next": "14.1.0",
-    "tsx": "^4.20.6",
     "typescript": "^5.3.3",
     "vitest": "^1.2.1"
   }
