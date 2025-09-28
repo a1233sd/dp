@@ -7,8 +7,9 @@ import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
 import { config } from '@/lib/config';
 
 export async function GET() {
+  let cloudSyncResult: Awaited<ReturnType<typeof syncCloudStorage>> | null = null;
   try {
-    await syncCloudStorage(config.cloudArchiveLink);
+    cloudSyncResult = await syncCloudStorage(config.cloudArchiveLink);
   } catch (error) {
     if (error instanceof CloudSyncError) {
       return NextResponse.json({ message: error.message }, { status: 400 });
@@ -38,7 +39,10 @@ export async function GET() {
         : null,
     };
   });
-  return NextResponse.json({ reports });
+  const cloudReportsCount = cloudSyncResult
+    ? cloudSyncResult.imported + cloudSyncResult.activated + cloudSyncResult.skipped
+    : reports.filter((report) => report.addedToCloud).length;
+  return NextResponse.json({ reports, cloudReportsCount });
 }
 
 export async function POST(req: NextRequest) {
