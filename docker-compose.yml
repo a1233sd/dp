@@ -1,47 +1,18 @@
 version: '3.8'
 services:
-  migrate:
-    build: .
-    command: ["npm", "run", "migrate"]
-    environment:
-      - REPORT_STORAGE_DIR=/data/reports
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
     volumes:
-      - ./storage:/data/reports
-      - ./data:/app/data
-    depends_on:
-      - sqlite
-    restart: "no"
-
-  diffpress:
+      - ./backend:/app
+    environment:
+      - DJANGO_SETTINGS_MODULE=plagiarism_checker.settings
+  frontend:
     build: .
     ports:
       - "${PORT:-3000}:3000"
     environment:
-      - REPORT_STORAGE_DIR=/data/reports
-    volumes:
-      - ./storage:/data/reports
-      - ./data:/app/data
+      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000/api
     depends_on:
-      migrate:
-        condition: service_completed_successfully
-    restart: unless-stopped
-
-  sqlite:
-    image: nouchka/sqlite3:latest
-    command: tail -f /dev/null
-    volumes:
-      - ./data:/data
-    restart: unless-stopped
-
-  sqlite-ui:
-    image: coleifer/sqlite-web:latest
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-    environment:
-      - SQLITE_DATABASE=/data/reports.sqlite
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/data
-    restart: unless-stopped
+      - backend

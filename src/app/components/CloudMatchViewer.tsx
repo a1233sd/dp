@@ -1,6 +1,6 @@
 'use client';
 
-import type { DiffSegment } from '@/lib/diff-utils';
+import type { DiffSegment } from '@/types/diff';
 
 function renderSegmentContent(value: string) {
   const parts = value.split(/(\n)/);

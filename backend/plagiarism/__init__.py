@@ -1,0 +1,1 @@
+"""Plagiarism detection Django app."""

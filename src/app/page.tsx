@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CloudMatchViewer } from './components/CloudMatchViewer';
-import type { DiffSegment } from '@/lib/diff-utils';
+import { buildApiUrl } from '@/lib/api';
+import type { DiffSegment } from '@/types/diff';
 
 interface ReportListItem {
   id: string;
@@ -59,7 +60,7 @@ export default function HomePage() {
   };
 
   const loadReports = async () => {
-    const response = await fetch('/api/reports');
+    const response = await fetch(buildApiUrl('/reports'));
     if (!response.ok) {
       throw new Error('Не удалось загрузить отчеты');
     }
@@ -91,7 +92,7 @@ export default function HomePage() {
     let cancelled = false;
 
     const fetchCheck = async () => {
-      const response = await fetch(`/api/checks/${selectedCheckId}`);
+      const response = await fetch(buildApiUrl(`/checks/${selectedCheckId}`));
       if (!response.ok) {
         throw new Error('Не удалось загрузить проверку');
       }
@@ -125,7 +126,7 @@ export default function HomePage() {
       return;
     }
     setDiffLoading(true);
-    fetch(`/api/diff?source=${checkDetails.reportId}&target=${selectedMatch.reportId}`)
+    fetch(buildApiUrl(`/diff?source=${checkDetails.reportId}&target=${selectedMatch.reportId}`))
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('Не удалось получить diff');
@@ -150,7 +151,7 @@ export default function HomePage() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/reports', {
+      const response = await fetch(buildApiUrl('/reports'), {
         method: 'POST',
         body: (() => {
           const payload = new FormData();
@@ -195,7 +196,7 @@ export default function HomePage() {
     setDeletingReportId(reportId);
     setError(null);
     try {
-      const response = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+      const response = await fetch(buildApiUrl(`/reports/${reportId}`), { method: 'DELETE' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const message = (payload as { message?: string }).message ?? 'Не удалось удалить отчет';
@@ -241,7 +242,7 @@ export default function HomePage() {
     setDeleteAllLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/reports', { method: 'DELETE' });
+      const response = await fetch(buildApiUrl('/reports'), { method: 'DELETE' });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const message = (payload as { message?: string }).message ?? 'Не удалось очистить базу отчетов';
