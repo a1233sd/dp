@@ -60,6 +60,7 @@ export default function HomePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cloudInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
+  const cloudPreviewCount = cloudPreview?.length ?? 0;
 
   const loadReports = async () => {
     const response = await fetch('/api/reports');
@@ -372,9 +373,18 @@ export default function HomePage() {
             Загрузить PDF
           </button>
           <span className="text-muted">
-            В облачной базе:{' '}
-            {cloudReportsCount}{' '}
-            {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
+            {cloudPreview ? (
+              <>
+                Облако подключено: найдено {cloudPreviewCount}{' '}
+                {pluralize(cloudPreviewCount, 'файл', 'файла', 'файлов')}
+              </>
+            ) : (
+              <>
+                В облачной базе:{' '}
+                {cloudReportsCount}{' '}
+                {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
+              </>
+            )}
           </span>
           {selectedCheckId && (
             <span className="status-chip status-chip--processing">Проверка #{selectedCheckId.slice(0, 8)}…</span>
@@ -400,7 +410,14 @@ export default function HomePage() {
                     Укажите папку с оригинальными файлами. Только отчеты с добавленной ссылкой участвуют в проверках на плагиат.
                   </p>
                 </div>
-                {cloudLink && <span className="status-chip status-chip--completed">Ссылка добавлена</span>}
+                {cloudPreviewCount > 0 ? (
+                  <span className="status-chip status-chip--completed">
+                    Найдено {cloudPreviewCount}{' '}
+                    {pluralize(cloudPreviewCount, 'файл', 'файла', 'файлов')}
+                  </span>
+                ) : (
+                  cloudLink && <span className="status-chip status-chip--completed">Ссылка добавлена</span>
+                )}
               </div>
               <div className="upload-step__controls">
                 <input
