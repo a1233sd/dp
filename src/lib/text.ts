@@ -1,4 +1,7 @@
+import stringSimilarity from 'string-similarity';
+
 const WORD_REGEX = /[\p{L}\p{N}]+/gu;
+const SHINGLE_NORMALIZATION_REGEX = /[^\p{L}\p{N}\s]+/gu;
 
 export function normalizeText(input: string): string {
   return input
@@ -51,4 +54,23 @@ export function cosineSimilarity(textA: string, textB: string): number {
   }
 
   return dotProduct / Math.sqrt(magnitudeA * magnitudeB);
+}
+
+function normalizeForShingles(input: string): string {
+  return normalizeText(input.replace(SHINGLE_NORMALIZATION_REGEX, ''));
+}
+
+export function trigramSimilarity(textA: string, textB: string): number {
+  const normalizedA = normalizeForShingles(textA);
+  const normalizedB = normalizeForShingles(textB);
+  if (!normalizedA || !normalizedB) {
+    return 0;
+  }
+  return stringSimilarity.compareTwoStrings(normalizedA, normalizedB);
+}
+
+export function plagiarismSimilarity(textA: string, textB: string): number {
+  const lexical = cosineSimilarity(textA, textB);
+  const structural = trigramSimilarity(textA, textB);
+  return Math.min(1, lexical * 0.6 + structural * 0.4);
 }

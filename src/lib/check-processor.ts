@@ -1,5 +1,5 @@
 import { buildDiffSegments, buildMatchPreview } from './diff-utils';
-import { cosineSimilarity } from './text';
+import { plagiarismSimilarity } from './text';
 import { readReportText } from './storage';
 import type { ReportRecord } from './repository';
 import { CheckRecord, createCheck, getCheckById, getReportById, listReports, updateCheck } from './repository';
@@ -72,7 +72,7 @@ class CheckProcessor {
         if (!otherText.trim()) {
           continue;
         }
-        const similarity = cosineSimilarity(reportText, otherText) * 100;
+        const similarity = plagiarismSimilarity(reportText, otherText) * 100;
         const segments = buildDiffSegments(otherText, reportText);
         const diff = buildMatchPreview(segments);
         results.push({
