@@ -179,3 +179,24 @@ export function findReportByCloudLinkAndName(
     )
     .get(cloudLink, originalName) as ReportRecord | undefined;
 }
+
+export function deleteChecksByReportId(reportId: string): void {
+  db.prepare(`DELETE FROM checks WHERE report_id = ?`).run(reportId);
+}
+
+export function deleteReport(id: string): ReportRecord | undefined {
+  const existing = getReportById(id);
+  if (!existing) {
+    return undefined;
+  }
+  deleteChecksByReportId(id);
+  db.prepare(`DELETE FROM reports WHERE id = ?`).run(id);
+  return existing;
+}
+
+export function deleteAllReports(): ReportRecord[] {
+  const reports = listReports();
+  db.prepare(`DELETE FROM checks`).run();
+  db.prepare(`DELETE FROM reports`).run();
+  return reports;
+}

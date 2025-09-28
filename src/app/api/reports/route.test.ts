@@ -4,12 +4,15 @@ import type { NextRequest } from 'next/server';
 vi.mock('@/lib/storage', () => ({
   persistReportFile: vi.fn(),
   persistReportText: vi.fn(),
+  removeReportFile: vi.fn(),
+  removeReportText: vi.fn(),
 }));
 
 vi.mock('@/lib/repository', () => ({
   createReport: vi.fn(),
   listReports: vi.fn(),
   findLatestCheckForReport: vi.fn(),
+  deleteAllReports: vi.fn(),
 }));
 
 vi.mock('@/lib/check-processor', () => ({
@@ -25,9 +28,9 @@ vi.mock('@/lib/cloud-scanner', () => ({
   CloudSyncError: class MockCloudSyncError extends Error {},
 }));
 
-import { POST } from './route';
-import { persistReportFile, persistReportText } from '@/lib/storage';
-import { createReport } from '@/lib/repository';
+import { DELETE, POST } from './route';
+import { persistReportFile, persistReportText, removeReportFile, removeReportText } from '@/lib/storage';
+import { createReport, deleteAllReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { syncCloudStorage, CloudSyncError } from '@/lib/cloud-scanner';
@@ -38,6 +41,9 @@ const queueCheckMock = vi.mocked(queueCheck);
 const pdfParseMock = vi.mocked(parsePdf);
 const persistReportTextMock = vi.mocked(persistReportText);
 const syncCloudStorageMock = vi.mocked(syncCloudStorage);
+const deleteAllReportsMock = vi.mocked(deleteAllReports);
+const removeReportFileMock = vi.mocked(removeReportFile);
+const removeReportTextMock = vi.mocked(removeReportText);
 
 describe('POST /api/reports', () => {
   beforeEach(() => {
@@ -347,5 +353,43 @@ describe('POST /api/reports', () => {
       message: 'Не удалось синхронизировать облачные файлы для сравнения',
     });
     expect(persistReportFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('DELETE /api/reports', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('removes all reports and their stored files', async () => {
+    deleteAllReportsMock.mockReturnValue([
+      {
+        id: 'report-1',
+        original_name: 'report.pdf',
+        stored_name: 'report.pdf',
+        text_index: 'report.txt',
+        cloud_link: null,
+        added_to_cloud: 0,
+        created_at: '2024-01-01T00:00:00.000Z',
+      },
+    ] as any);
+
+    const response = await DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ deleted: 1 });
+    expect(removeReportFileMock).toHaveBeenCalledWith('report.pdf');
+    expect(removeReportTextMock).toHaveBeenCalledWith('report.txt');
+  });
+
+  it('returns zero when there are no reports to delete', async () => {
+    deleteAllReportsMock.mockReturnValue([]);
+
+    const response = await DELETE();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ deleted: 0 });
+    expect(removeReportFileMock).not.toHaveBeenCalled();
+    expect(removeReportTextMock).not.toHaveBeenCalled();
   });
 });

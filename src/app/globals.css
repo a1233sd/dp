@@ -208,6 +208,20 @@ a {
   margin-bottom: 1.5rem;
 }
 
+.card__header-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.card__header-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .card__header-title {
   margin: 0;
   font-size: 1.25rem;
@@ -267,6 +281,28 @@ a {
   color: var(--color-slate-700);
   background: rgba(148, 163, 184, 0.16);
   border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.button--danger {
+  color: var(--color-white);
+  background: linear-gradient(120deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 12px 30px rgba(239, 68, 68, 0.28);
+}
+
+.button--danger:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 36px rgba(239, 68, 68, 0.32);
+}
+
+.button--ghost-danger {
+  color: var(--color-danger);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+}
+
+.button--ghost-danger:not(:disabled):hover {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .upload-form {
@@ -482,6 +518,13 @@ a {
 
 .table tbody tr:hover {
   background: rgba(37, 99, 235, 0.06);
+}
+
+.table__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
 }
 
 .cloud-cell {

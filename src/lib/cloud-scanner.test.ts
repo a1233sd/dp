@@ -138,4 +138,61 @@ describe('cloud-scanner', () => {
       },
     ]);
   });
+
+  it('loads PDFs from a shared Yandex.Disk folder', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch as unknown as ReturnType<typeof vi.fn>);
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          type: 'dir',
+          _embedded: {
+            items: [
+              {
+                type: 'file',
+                name: 'root.pdf',
+                path: 'disk:/root.pdf',
+                file: 'https://downloader.disk.yandex.ru/root.pdf',
+              },
+              {
+                type: 'dir',
+                name: 'nested',
+                path: 'disk:/nested',
+              },
+            ],
+          },
+        }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          type: 'dir',
+          _embedded: {
+            items: [
+              {
+                type: 'file',
+                name: 'nested.pdf',
+                path: 'disk:/nested/nested.pdf',
+                file: 'https://downloader.disk.yandex.ru/nested.pdf',
+              },
+            ],
+          },
+        }),
+      } as any);
+
+    vi.mocked(findReportByCloudLinkAndName).mockReturnValue(undefined);
+
+    const items = await inspectCloudStorage('https://disk.yandex.ru/d/public-folder');
+
+    expect(items).toEqual([
+      { name: 'root.pdf', status: 'new' },
+      { name: 'nested.pdf', status: 'new' },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('cloud-api.yandex.net/v1/disk/public/resources'),
+      expect.objectContaining({ headers: expect.any(Headers) })
+    );
+  });
 });

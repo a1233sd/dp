@@ -5,14 +5,24 @@ vi.mock('@/lib/repository', () => ({
   getReportById: vi.fn(),
   listChecks: vi.fn(),
   updateReport: vi.fn(),
+  deleteReport: vi.fn(),
 }));
 
-import { PATCH } from './route';
-import { getReportById, updateReport } from '@/lib/repository';
+vi.mock('@/lib/storage', () => ({
+  removeReportFile: vi.fn(),
+  removeReportText: vi.fn(),
+}));
+
+import { DELETE, PATCH } from './route';
+import { deleteReport, getReportById, updateReport } from '@/lib/repository';
 import type { ReportRecord } from '@/lib/repository';
+import { removeReportFile, removeReportText } from '@/lib/storage';
 
 const getReportByIdMock = vi.mocked(getReportById);
 const updateReportMock = vi.mocked(updateReport);
+const deleteReportMock = vi.mocked(deleteReport);
+const removeReportFileMock = vi.mocked(removeReportFile);
+const removeReportTextMock = vi.mocked(removeReportText);
 
 const baseReport: ReportRecord = {
   id: 'report-1',
@@ -94,5 +104,32 @@ describe('PATCH /api/reports/[id]', () => {
         addedToCloud: false,
       },
     });
+  });
+});
+
+describe('DELETE /api/reports/[id]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    deleteReportMock.mockReturnValue(baseReport);
+  });
+
+  it('removes report files when deletion succeeds', async () => {
+    const response = await DELETE({} as NextRequest, { params: { id: baseReport.id } });
+
+    expect(deleteReportMock).toHaveBeenCalledWith(baseReport.id);
+    expect(removeReportFileMock).toHaveBeenCalledWith(baseReport.stored_name);
+    expect(removeReportTextMock).toHaveBeenCalledWith(baseReport.text_index);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ report: { id: baseReport.id } });
+  });
+
+  it('returns 404 when report is missing', async () => {
+    deleteReportMock.mockReturnValueOnce(undefined);
+
+    const response = await DELETE({} as NextRequest, { params: { id: 'missing' } });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ message: 'Отчет не найден' });
+    expect(removeReportFileMock).not.toHaveBeenCalled();
   });
 });
