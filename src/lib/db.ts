@@ -41,6 +41,11 @@ type TableName = { name: string };
 type ForeignKey = { table: string };
 type SqliteError = Error & { code?: string };
 
+const tableExists = (tableName: string): boolean => {
+  const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as TableName[];
+  return tables.some((table) => table.name === tableName);
+};
+
 const isMissingReportsOldError = (error: unknown): boolean => {
   if (!(error instanceof Error)) {
     return false;
@@ -54,10 +59,7 @@ const isMissingReportsOldError = (error: unknown): boolean => {
   return error.message.includes('reports_old');
 };
 
-const reportsOldExists = (): boolean => {
-  const tables = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as TableName[];
-  return tables.some((table) => table.name === 'reports_old');
-};
+const reportsOldExists = (): boolean => tableExists('reports_old');
 
 const migrateReportsOldTable = () => {
   try {
@@ -100,15 +102,23 @@ const checksForeignKeys = db.prepare(`PRAGMA foreign_key_list(checks)`).all() as
 
 const checksReferencesReportsOld = checksForeignKeys.some((foreignKey) => foreignKey.table === 'reports_old');
 
-if (checksReferencesReportsOld) {
-  db.exec(`ALTER TABLE checks RENAME TO checks_old;`);
+const checksOldExists = tableExists('checks_old');
+
+if (checksReferencesReportsOld || checksOldExists) {
+  if (!checksOldExists) {
+    db.exec(`ALTER TABLE checks RENAME TO checks_old;`);
+  }
+
   createChecksTable();
-  db.exec(`
-    INSERT OR REPLACE INTO checks (id, report_id, status, similarity, matches, created_at, completed_at)
-    SELECT id, report_id, status, similarity, matches, created_at, completed_at
-    FROM checks_old;
-  `);
-  db.exec('DROP TABLE IF EXISTS checks_old;');
+
+  if (tableExists('checks_old')) {
+    db.exec(`
+      INSERT OR REPLACE INTO checks (id, report_id, status, similarity, matches, created_at, completed_at)
+      SELECT id, report_id, status, similarity, matches, created_at, completed_at
+      FROM checks_old;
+    `);
+    db.exec('DROP TABLE IF EXISTS checks_old;');
+  }
 }
 
 const reportColumns = db.prepare(`PRAGMA table_info(reports)`).all() as TableColumn[];
