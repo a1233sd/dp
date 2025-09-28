@@ -1,7 +1,9 @@
 import { diffLines } from 'diff';
 import { cosineSimilarity } from './text';
 import { readReportText } from './storage';
+import type { ReportRecord } from './repository';
 import { CheckRecord, createCheck, getCheckById, getReportById, listReports, updateCheck } from './repository';
+import { getIndexedMatches, updateMatchIndex } from './match-index';
 
 export interface MatchResult {
   reportId: string;
@@ -57,14 +59,18 @@ class CheckProcessor {
     }
 
     const reportText = safeReadReportText(report.text_index);
-    const otherReports = listReports().filter(
-      (item) => item.id !== reportId && Boolean(item.added_to_cloud)
-    );
-    const matches: MatchResult[] = otherReports
-      .map((other) => {
+    const processed = new Set<string>([reportId]);
+
+    const evaluateCandidates = (candidates: ReportRecord[]): MatchResult[] => {
+      const results: MatchResult[] = [];
+      for (const other of candidates) {
+        if (processed.has(other.id)) {
+          continue;
+        }
+        processed.add(other.id);
         const otherText = safeReadReportText(other.text_index);
         if (!otherText.trim()) {
-          return null;
+          continue;
         }
         const similarity = cosineSimilarity(reportText, otherText) * 100;
         const diff = diffLines(otherText, reportText)
@@ -74,17 +80,37 @@ class CheckProcessor {
           })
           .slice(0, 10)
           .join('\n');
-        return {
+        results.push({
           reportId: other.id,
           reportName: other.original_name,
           similarity: Math.round(similarity * 100) / 100,
           diffPreview: diff,
-        };
-      })
-      .filter((match): match is MatchResult => match !== null);
+        });
+      }
+      return results;
+    };
+
+    const indexedReports = getIndexedMatches(reportId)
+      .map((id) => getReportById(id))
+      .filter((item): item is ReportRecord => Boolean(item) && item.id !== reportId);
+
+    const matchesFromIndex = evaluateCandidates(indexedReports);
+
+    const otherReports = listReports().filter(
+      (item) => item.id !== reportId && !processed.has(item.id) && Boolean(item.added_to_cloud)
+    );
+
+    const matchesFromDisk = evaluateCandidates(otherReports);
+
+    const matches: MatchResult[] = [...matchesFromIndex, ...matchesFromDisk];
 
     matches.sort((a, b) => b.similarity - a.similarity);
     const topSimilarity = matches[0]?.similarity ?? 0;
+
+    updateMatchIndex(
+      reportId,
+      matches.map((match) => match.reportId)
+    );
 
     updateCheck(checkId, {
       status: 'completed',

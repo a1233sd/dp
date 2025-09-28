@@ -3,16 +3,8 @@ import { readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { resolve } from 'path';
 import { config } from './config';
 
-export function persistReportFile(buffer: Buffer, originalName: string): {
-  id: string;
-  storedName: string;
-  absolutePath: string;
-} {
-  const id = randomUUID();
-  const storedName = `${id}.pdf`;
-  const absolutePath = resolve(config.storageDir, storedName);
-  writeFileSync(absolutePath, buffer);
-  return { id, storedName, absolutePath };
+export function generateReportId(): string {
+  return randomUUID();
 }
 
 export function persistReportText(id: string, text: string): {
@@ -39,11 +31,6 @@ function safeUnlink(path: string) {
     }
     throw error;
   }
-}
-
-export function removeReportFile(storedName: string): void {
-  const absolutePath = resolve(config.storageDir, storedName);
-  safeUnlink(absolutePath);
 }
 
 export function removeReportText(index: string): void {

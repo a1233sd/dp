@@ -2,9 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 vi.mock('@/lib/storage', () => ({
-  persistReportFile: vi.fn(),
+  generateReportId: vi.fn(),
   persistReportText: vi.fn(),
-  removeReportFile: vi.fn(),
   removeReportText: vi.fn(),
 }));
 
@@ -28,15 +27,20 @@ vi.mock('@/lib/cloud-scanner', () => ({
   CloudSyncError: class MockCloudSyncError extends Error {},
 }));
 
+vi.mock('@/lib/match-index', () => ({
+  resetMatchIndex: vi.fn(),
+}));
+
 import { DELETE, GET, POST } from './route';
-import { persistReportFile, persistReportText, removeReportFile, removeReportText } from '@/lib/storage';
+import { generateReportId, persistReportText, removeReportText } from '@/lib/storage';
 import { createReport, deleteAllReports, listReports, findLatestCheckForReport } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { syncCloudStorage, CloudSyncError } from '@/lib/cloud-scanner';
 import { config } from '@/lib/config';
+import { resetMatchIndex } from '@/lib/match-index';
 
-const persistReportFileMock = vi.mocked(persistReportFile);
+const generateReportIdMock = vi.mocked(generateReportId);
 const createReportMock = vi.mocked(createReport);
 const listReportsMock = vi.mocked(listReports);
 const findLatestCheckForReportMock = vi.mocked(findLatestCheckForReport);
@@ -45,8 +49,8 @@ const pdfParseMock = vi.mocked(parsePdf);
 const persistReportTextMock = vi.mocked(persistReportText);
 const syncCloudStorageMock = vi.mocked(syncCloudStorage);
 const deleteAllReportsMock = vi.mocked(deleteAllReports);
-const removeReportFileMock = vi.mocked(removeReportFile);
 const removeReportTextMock = vi.mocked(removeReportText);
+const resetMatchIndexMock = vi.mocked(resetMatchIndex);
 
 describe('GET /api/reports', () => {
   beforeEach(() => {
@@ -62,7 +66,6 @@ describe('GET /api/reports', () => {
       {
         id: 'report-1',
         original_name: 'report.pdf',
-        stored_name: 'report-1.pdf',
         text_index: 'report-1.txt',
         cloud_link: 'https://cloud.example/reports',
         added_to_cloud: 1,
@@ -141,21 +144,16 @@ describe('POST /api/reports', () => {
     const formData = new FormData();
     formData.set('file', file);
 
-    const storedReport = {
-      id: 'report-123',
-      storedName: 'report-123.pdf',
-      absolutePath: '/tmp/report-123.pdf',
-    };
-    persistReportFileMock.mockReturnValue(storedReport);
+    const reportId = 'report-123';
+    generateReportIdMock.mockReturnValue(reportId);
     persistReportTextMock.mockReturnValue({
       index: 'report-123.txt',
       absolutePath: '/tmp/report-123.txt',
     });
 
     createReportMock.mockReturnValue({
-      id: storedReport.id,
+      id: reportId,
       original_name: file.name,
-      stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
       cloud_link: config.cloudArchiveLink,
       added_to_cloud: 0,
@@ -164,7 +162,7 @@ describe('POST /api/reports', () => {
 
     queueCheckMock.mockReturnValue({
       id: 'check-456',
-      report_id: storedReport.id,
+      report_id: reportId,
       status: 'queued',
       similarity: null,
       matches: '[]',
@@ -184,26 +182,22 @@ describe('POST /api/reports', () => {
 
     expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      reportId: storedReport.id,
+      reportId: reportId,
       checkId: 'check-456',
       status: 'queued',
     });
 
-    expect(persistReportFileMock).toHaveBeenCalledTimes(1);
-    expect(persistReportFileMock.mock.calls[0][0]).toBeInstanceOf(Buffer);
-    expect(persistReportFileMock.mock.calls[0][1]).toBe('report.pdf');
-
-    expect(persistReportTextMock).toHaveBeenCalledWith(storedReport.id, 'parsed text');
+    expect(generateReportIdMock).toHaveBeenCalled();
+    expect(persistReportTextMock).toHaveBeenCalledWith(reportId, 'parsed text');
 
     expect(createReportMock).toHaveBeenCalledWith({
-      id: storedReport.id,
+      id: reportId,
       original_name: 'report.pdf',
-      stored_name: storedReport.storedName,
       text_index: 'report-123.txt',
       cloud_link: config.cloudArchiveLink,
     });
 
-    expect(queueCheckMock).toHaveBeenCalledWith(storedReport.id);
+    expect(queueCheckMock).toHaveBeenCalledWith(reportId);
     expect(syncCloudStorageMock).toHaveBeenCalledWith(config.cloudArchiveLink);
   });
 
@@ -215,17 +209,7 @@ describe('POST /api/reports', () => {
     const formData = new FormData();
     files.forEach((file) => formData.append('files', file));
 
-    persistReportFileMock
-      .mockReturnValueOnce({
-        id: 'report-1',
-        storedName: 'report-1.pdf',
-        absolutePath: '/tmp/report-1.pdf',
-      })
-      .mockReturnValueOnce({
-        id: 'report-2',
-        storedName: 'report-2.pdf',
-        absolutePath: '/tmp/report-2.pdf',
-      });
+    generateReportIdMock.mockReturnValueOnce('report-1').mockReturnValueOnce('report-2');
 
     persistReportTextMock
       .mockReturnValueOnce({ index: 'report-1.txt', absolutePath: '/tmp/report-1.txt' })
@@ -235,7 +219,6 @@ describe('POST /api/reports', () => {
       .mockReturnValueOnce({
         id: 'report-1',
         original_name: 'first.pdf',
-        stored_name: 'report-1.pdf',
         text_index: 'report-1.txt',
         cloud_link: config.cloudArchiveLink,
         added_to_cloud: 0,
@@ -244,7 +227,6 @@ describe('POST /api/reports', () => {
       .mockReturnValueOnce({
         id: 'report-2',
         original_name: 'second.pdf',
-        stored_name: 'report-2.pdf',
         text_index: 'report-2.txt',
         cloud_link: config.cloudArchiveLink,
         added_to_cloud: 0,
@@ -287,7 +269,6 @@ describe('POST /api/reports', () => {
       ],
     });
 
-    expect(persistReportFileMock).toHaveBeenCalledTimes(2);
     expect(persistReportTextMock).toHaveBeenNthCalledWith(1, 'report-1', 'parsed text');
     expect(persistReportTextMock).toHaveBeenNthCalledWith(2, 'report-2', 'parsed text');
     expect(queueCheckMock).toHaveBeenCalledTimes(2);
@@ -313,7 +294,7 @@ describe('POST /api/reports', () => {
       message: 'Не удалось обработать PDF «broken.pdf». Проверьте, что файл не поврежден и содержит текст.',
     });
 
-    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(generateReportIdMock).not.toHaveBeenCalled();
     expect(persistReportTextMock).not.toHaveBeenCalled();
     expect(createReportMock).not.toHaveBeenCalled();
     expect(queueCheckMock).not.toHaveBeenCalled();
@@ -336,7 +317,7 @@ describe('POST /api/reports', () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ message: 'Cloud validation error' });
-    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(generateReportIdMock).not.toHaveBeenCalled();
   });
 
   it('returns 502 when cloud sync fails unexpectedly', async () => {
@@ -359,7 +340,7 @@ describe('POST /api/reports', () => {
     await expect(response.json()).resolves.toEqual({
       message: 'Не удалось синхронизировать облачные файлы для сравнения',
     });
-    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(generateReportIdMock).not.toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 });
@@ -374,7 +355,6 @@ describe('DELETE /api/reports', () => {
       {
         id: 'report-1',
         original_name: 'report.pdf',
-        stored_name: 'report.pdf',
         text_index: 'report.txt',
         cloud_link: null,
         added_to_cloud: 0,
@@ -386,8 +366,8 @@ describe('DELETE /api/reports', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ deleted: 1 });
-    expect(removeReportFileMock).toHaveBeenCalledWith('report.pdf');
     expect(removeReportTextMock).toHaveBeenCalledWith('report.txt');
+    expect(resetMatchIndexMock).toHaveBeenCalled();
   });
 
   it('returns zero when there are no reports to delete', async () => {
@@ -397,7 +377,7 @@ describe('DELETE /api/reports', () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ deleted: 0 });
-    expect(removeReportFileMock).not.toHaveBeenCalled();
     expect(removeReportTextMock).not.toHaveBeenCalled();
+    expect(resetMatchIndexMock).not.toHaveBeenCalled();
   });
 });
