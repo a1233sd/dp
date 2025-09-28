@@ -100,6 +100,14 @@ async function fetchWithBrowserHeaders(input: RequestInfo | URL, init?: RequestI
   return fetch(input, mergeBrowserHeaders(init));
 }
 
+function decodePotentiallyEscapedUrl(value: string): string {
+  return value
+    .replace(/\\\//g, '/')
+    .replace(/\u002[fF]/g, '/')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 async function parseListingResponse(cloudLink: string): Promise<CloudResource[]> {
   const response = await fetchWithBrowserHeaders(cloudLink);
   if (!response.ok) {
@@ -164,6 +172,38 @@ async function parseListingResponse(cloudLink: string): Promise<CloudResource[]>
       resources.set(url, { name: guessFileName(url), url });
     } catch {
       // ignore invalid URLs
+    }
+  }
+
+  if (!resources.size) {
+    try {
+      const parsedUrl = new URL(finalUrl);
+      if (parsedUrl.hostname.endsWith('cloud.mail.ru')) {
+        const cloudMailLinkRegex = /["']([^"'<>]*?\.pdf[^"'<>]*)["']/gi;
+        while ((match = cloudMailLinkRegex.exec(body)) !== null) {
+          const raw = match[1];
+          if (!raw?.includes('/public/')) {
+            continue;
+          }
+          const cleaned = decodePotentiallyEscapedUrl(raw);
+          let candidate = cleaned;
+          if (candidate.startsWith('//')) {
+            candidate = `https:${candidate}`;
+          } else if (!candidate.startsWith('http')) {
+            if (!candidate.startsWith('/')) {
+              candidate = `/public/${candidate.replace(/^public\/?/, '')}`;
+            }
+          }
+          try {
+            const url = normaliseUrl(finalUrl, candidate);
+            resources.set(url, { name: guessFileName(url), url });
+          } catch {
+            // ignore invalid URLs
+          }
+        }
+      }
+    } catch {
+      // ignore parsing URL errors and fall back to default behaviour below
     }
   }
 
