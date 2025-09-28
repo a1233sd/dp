@@ -243,4 +243,31 @@ describe('POST /api/reports', () => {
     expect(pdfParseMock).not.toHaveBeenCalled();
     expect(persistReportFileMock).not.toHaveBeenCalled();
   });
+
+  it('returns 400 when pdf parsing fails', async () => {
+    const file = new File(['%PDF-1.7 invalid'], 'broken.pdf', {
+      type: 'application/pdf',
+    });
+    const formData = new FormData();
+    formData.set('file', file);
+    formData.set('cloudLink', 'https://example.com/folder');
+
+    pdfParseMock.mockRejectedValue(new Error('Invalid PDF structure.'));
+
+    const request = {
+      formData: vi.fn().mockResolvedValue(formData),
+    } as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Не удалось обработать PDF «broken.pdf». Проверьте, что файл не поврежден и содержит текст.',
+    });
+
+    expect(persistReportFileMock).not.toHaveBeenCalled();
+    expect(persistReportTextMock).not.toHaveBeenCalled();
+    expect(createReportMock).not.toHaveBeenCalled();
+    expect(queueCheckMock).not.toHaveBeenCalled();
+  });
 });

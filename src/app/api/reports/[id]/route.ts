@@ -42,6 +42,7 @@ export async function PATCH(
 
   const body = await req.json();
   const updates: { cloud_link?: string | null; added_to_cloud?: boolean } = {};
+  const hasExplicitAddedFlag = Object.prototype.hasOwnProperty.call(body, 'addedToCloud');
 
   if (Object.prototype.hasOwnProperty.call(body, 'cloudLink')) {
     const value = body.cloudLink;
@@ -49,17 +50,23 @@ export async function PATCH(
       try {
         const parsed = new URL(value.trim());
         updates.cloud_link = parsed.toString();
+        if (!hasExplicitAddedFlag) {
+          updates.added_to_cloud = true;
+        }
       } catch {
         return NextResponse.json({ message: 'Некорректная ссылка на облачный диск' }, { status: 400 });
       }
     } else if (value === null || value === '') {
       updates.cloud_link = null;
+      if (!hasExplicitAddedFlag) {
+        updates.added_to_cloud = false;
+      }
     } else {
       return NextResponse.json({ message: 'Некорректный формат ссылки' }, { status: 400 });
     }
   }
 
-  if (Object.prototype.hasOwnProperty.call(body, 'addedToCloud')) {
+  if (hasExplicitAddedFlag) {
     if (typeof body.addedToCloud !== 'boolean') {
       return NextResponse.json({ message: 'Некорректный флаг добавления' }, { status: 400 });
     }
