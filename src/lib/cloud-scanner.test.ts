@@ -5,7 +5,7 @@ vi.mock('./pdf-parser', () => ({
 }));
 
 vi.mock('./storage', () => ({
-  persistReportFile: vi.fn(),
+  generateReportId: vi.fn(),
   persistReportText: vi.fn(),
 }));
 
@@ -17,7 +17,7 @@ vi.mock('./repository', () => ({
 
 import { inspectCloudStorage, syncCloudStorage } from './cloud-scanner';
 import { parsePdf } from './pdf-parser';
-import { persistReportFile, persistReportText } from './storage';
+import { generateReportId, persistReportText } from './storage';
 import { createReport, findReportByCloudLinkAndName } from './repository';
 
 describe('cloud-scanner', () => {
@@ -49,12 +49,8 @@ describe('cloud-scanner', () => {
     const parsePdfMock = vi.mocked(parsePdf);
     parsePdfMock.mockResolvedValue({ text: 'parsed content' });
 
-    const persistReportFileMock = vi.mocked(persistReportFile);
-    persistReportFileMock.mockReturnValue({
-      id: 'report-1',
-      storedName: 'stored-report.pdf',
-      absolutePath: '/tmp/stored-report.pdf',
-    } as any);
+    const generateReportIdMock = vi.mocked(generateReportId);
+    generateReportIdMock.mockReturnValue('report-1');
 
     const persistReportTextMock = vi.mocked(persistReportText);
     persistReportTextMock.mockReturnValue({
@@ -65,7 +61,6 @@ describe('cloud-scanner', () => {
     vi.mocked(createReport).mockReturnValue({
       id: 'report-1',
       original_name: 'report.pdf',
-      stored_name: 'stored-report.pdf',
       text_index: 'report-1.txt',
       cloud_link: 'https://example.com/folder',
       added_to_cloud: 1,

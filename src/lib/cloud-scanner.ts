@@ -1,5 +1,5 @@
 import { parsePdf } from './pdf-parser';
-import { persistReportFile, persistReportText } from './storage';
+import { generateReportId, persistReportText } from './storage';
 import {
   createReport,
   findReportByCloudLinkAndName,
@@ -402,13 +402,11 @@ export async function syncCloudStorage(cloudLink: string): Promise<SyncResult> {
         continue;
       }
 
-      const buffer = Buffer.from(uint8);
-      const stored = persistReportFile(buffer, resource.name);
-      const textIndex = persistReportText(stored.id, pdfData.text);
+      const reportId = generateReportId();
+      const textIndex = persistReportText(reportId, pdfData.text);
       createReport({
-        id: stored.id,
+        id: reportId,
         original_name: resource.name,
-        stored_name: stored.storedName,
         text_index: textIndex.index,
         cloud_link: cloudLink,
         added_to_cloud: true,

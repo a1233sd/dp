@@ -9,7 +9,6 @@ const createReportsTable = () => {
     CREATE TABLE IF NOT EXISTS reports (
       id TEXT PRIMARY KEY,
       original_name TEXT NOT NULL,
-      stored_name TEXT NOT NULL,
       text_index TEXT NOT NULL,
       created_at TEXT NOT NULL,
       cloud_link TEXT,
@@ -80,8 +79,8 @@ const migrateReportsOldTable = () => {
     const addedToCloudSelect = hasLegacyAddedToCloud ? 'added_to_cloud' : '0';
 
     db.exec(`
-      INSERT OR REPLACE INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud)
-      SELECT id, original_name, stored_name, ${textIndexSelect} AS text_index, created_at, ${cloudLinkSelect} AS cloud_link, ${addedToCloudSelect} AS added_to_cloud
+      INSERT OR REPLACE INTO reports (id, original_name, text_index, created_at, cloud_link, added_to_cloud)
+      SELECT id, original_name, ${textIndexSelect} AS text_index, created_at, ${cloudLinkSelect} AS cloud_link, ${addedToCloudSelect} AS added_to_cloud
       FROM reports_old;
     `);
 
@@ -125,15 +124,14 @@ const reportColumns = db.prepare(`PRAGMA table_info(reports)`).all() as TableCol
 
 const hasTextIndex = reportColumns.some((column) => column.name === 'text_index');
 const hasTextContent = reportColumns.some((column) => column.name === 'text_content');
+const hasStoredName = reportColumns.some((column) => column.name === 'stored_name');
 
-if (!hasTextIndex) {
-  if (hasTextContent) {
-    db.exec(`ALTER TABLE reports RENAME TO reports_old;`);
-    createReportsTable();
-    migrateReportsOldTable();
-  } else {
-    db.prepare(`ALTER TABLE reports ADD COLUMN text_index TEXT NOT NULL DEFAULT ''`).run();
-  }
+if (hasStoredName || (hasTextContent && !hasTextIndex)) {
+  db.exec(`ALTER TABLE reports RENAME TO reports_old;`);
+  createReportsTable();
+  migrateReportsOldTable();
+} else if (!hasTextIndex) {
+  db.prepare(`ALTER TABLE reports ADD COLUMN text_index TEXT NOT NULL DEFAULT ''`).run();
 }
 
 const updatedReportColumns = db.prepare(`PRAGMA table_info(reports)`).all() as TableColumn[];

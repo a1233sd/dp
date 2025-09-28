@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { persistReportFile, persistReportText, removeReportFile, removeReportText } from '@/lib/storage';
+import { generateReportId, persistReportText, removeReportText } from '@/lib/storage';
 import { createReport, deleteAllReports, findLatestCheckForReport, listReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
 import { config } from '@/lib/config';
+import { resetMatchIndex } from '@/lib/match-index';
 
 export async function GET() {
   let cloudSyncResult: Awaited<ReturnType<typeof syncCloudStorage>> | null = null;
@@ -91,8 +92,6 @@ export async function POST(req: NextRequest) {
 
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    const buffer = Buffer.from(uint8Array);
-
     let pdfData: Awaited<ReturnType<typeof parsePdf>>;
     try {
       pdfData = await parsePdf(uint8Array);
@@ -112,12 +111,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const stored = persistReportFile(buffer, file.name);
-    const textIndex = persistReportText(stored.id, pdfData.text);
+    const reportId = generateReportId();
+    const textIndex = persistReportText(reportId, pdfData.text);
     const report = createReport({
-      id: stored.id,
+      id: reportId,
       original_name: file.name,
-      stored_name: stored.storedName,
       text_index: textIndex.index,
       cloud_link: cloudLink,
     });
@@ -136,8 +134,10 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const removed = deleteAllReports();
   removed.forEach((report) => {
-    removeReportFile(report.stored_name);
     removeReportText(report.text_index);
   });
+  if (removed.length) {
+    resetMatchIndex();
+  }
   return NextResponse.json({ deleted: removed.length });
 }

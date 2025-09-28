@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteReport, getReportById, listChecks } from '@/lib/repository';
-import { removeReportFile, removeReportText } from '@/lib/storage';
+import { removeReportFromMatchIndex } from '@/lib/match-index';
+import { removeReportText } from '@/lib/storage';
 
 export async function GET(
   _req: NextRequest,
@@ -40,8 +41,8 @@ export async function DELETE(
   if (!removed) {
     return NextResponse.json({ message: 'Отчет не найден' }, { status: 404 });
   }
-  removeReportFile(removed.stored_name);
   removeReportText(removed.text_index);
+  removeReportFromMatchIndex(removed.id);
   return NextResponse.json({
     report: {
       id: removed.id,

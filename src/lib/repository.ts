@@ -4,7 +4,6 @@ import db from './db';
 export interface ReportRecord {
   id: string;
   original_name: string;
-  stored_name: string;
   text_index: string;
   cloud_link: string | null;
   added_to_cloud: 0 | 1;
@@ -24,7 +23,6 @@ export interface CheckRecord {
 export interface CreateReportInput {
   id?: string;
   original_name: string;
-  stored_name: string;
   text_index: string;
   cloud_link?: string | null;
   added_to_cloud?: boolean;
@@ -36,13 +34,12 @@ export function createReport(record: CreateReportInput): ReportRecord {
   const cloud_link = record.cloud_link ?? null;
   const added_to_cloud = record.added_to_cloud ? 1 : 0;
   db.prepare(
-    `INSERT INTO reports (id, original_name, stored_name, text_index, created_at, cloud_link, added_to_cloud)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, record.original_name, record.stored_name, record.text_index, created_at, cloud_link, added_to_cloud);
+    `INSERT INTO reports (id, original_name, text_index, created_at, cloud_link, added_to_cloud)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, record.original_name, record.text_index, created_at, cloud_link, added_to_cloud);
   return {
     id,
     original_name: record.original_name,
-    stored_name: record.stored_name,
     text_index: record.text_index,
     cloud_link,
     added_to_cloud,
@@ -60,7 +57,6 @@ export function getReportById(id: string): ReportRecord | undefined {
 
 export interface UpdateReportInput {
   original_name?: string;
-  stored_name?: string;
   text_index?: string;
   cloud_link?: string | null;
   added_to_cloud?: boolean;
@@ -73,11 +69,6 @@ export function updateReport(id: string, updates: UpdateReportInput): ReportReco
   if (updates.original_name !== undefined) {
     fields.push('original_name = ?');
     values.push(updates.original_name);
-  }
-
-  if (updates.stored_name !== undefined) {
-    fields.push('stored_name = ?');
-    values.push(updates.stored_name);
   }
 
   if (updates.text_index !== undefined) {
