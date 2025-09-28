@@ -4,7 +4,7 @@ import { createReport, deleteAllReports, findLatestCheckForReport, listReports }
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
-import { CloudLinkValidationError, normalizeCloudLink } from '@/lib/cloud-link';
+import { config } from '@/lib/config';
 
 export async function GET() {
   const reports = listReports().map((report) => {
@@ -30,21 +30,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
-  const cloudLinkRaw = formData.get('cloudLink');
-  let cloudLink: string | null = null;
-
-  if (typeof cloudLinkRaw === 'string' && cloudLinkRaw.trim()) {
-    try {
-      cloudLink = normalizeCloudLink(cloudLinkRaw);
-    } catch (error) {
-      if (error instanceof CloudLinkValidationError) {
-        return NextResponse.json({ message: error.message }, { status: 400 });
-      }
-      throw error;
-    }
-  } else {
-    return NextResponse.json({ message: 'Ссылка на облачное хранилище обязательна' }, { status: 400 });
-  }
+  const cloudLink = config.cloudArchiveLink;
 
   const files = formData
     .getAll('files')

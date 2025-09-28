@@ -26,8 +26,6 @@ interface CheckDetails {
   completedAt: string | null;
   reportId: string;
   reportName: string | null;
-  reportCloudLink: string | null;
-  reportAddedToCloud: boolean;
 }
 
 interface MatchResult {
@@ -35,11 +33,6 @@ interface MatchResult {
   reportName: string;
   similarity: number;
   diffPreview: string;
-}
-
-interface CloudPreviewItem {
-  name: string;
-  status: 'new' | 'existing' | 'pending';
 }
 
 export default function HomePage() {
@@ -52,17 +45,10 @@ export default function HomePage() {
   const [diff, setDiff] = useState<DiffSegment[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
   const [fileNames, setFileNames] = useState<string[]>([]);
-  const [cloudLinkInput, setCloudLinkInput] = useState('');
-  const [cloudLink, setCloudLink] = useState<string | null>(null);
-  const [cloudActionId, setCloudActionId] = useState<string | null>(null);
-  const [cloudPreview, setCloudPreview] = useState<CloudPreviewItem[] | null>(null);
-  const [cloudPreviewLoading, setCloudPreviewLoading] = useState(false);
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cloudInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
-  const cloudPreviewCount = cloudPreview?.length ?? 0;
 
   const clearCheckState = () => {
     setSelectedCheckId(null);
@@ -106,8 +92,6 @@ export default function HomePage() {
         setCheckDetails({
           ...data.check,
           reportName: data.check.reportName ?? null,
-          reportCloudLink: data.check.reportCloudLink ?? null,
-          reportAddedToCloud: data.check.reportAddedToCloud ?? false,
         });
         if (data.check.status === 'completed') {
           setSelectedMatch(null);
@@ -147,10 +131,6 @@ export default function HomePage() {
 
   const handleUpload = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!cloudLink) {
-      setError('Сначала добавьте ссылку на облачное хранилище.');
-      return;
-    }
     const formData = new FormData(event.currentTarget);
     const files = formData
       .getAll('files')
@@ -169,7 +149,6 @@ export default function HomePage() {
           files.forEach((file) => {
             payload.append('files', file);
           });
-          payload.set('cloudLink', cloudLink);
           return payload;
         })(),
       });
@@ -196,164 +175,6 @@ export default function HomePage() {
       }
     } finally {
       setLoading(false);
-    }
-  };
-
-  const confirmCloudLink = async () => {
-    const trimmed = cloudLinkInput.trim();
-    if (!trimmed) {
-      setError('Введите ссылку на облачное хранилище.');
-      return;
-    }
-    setCloudPreview(null);
-    setCloudPreviewLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/cloud/scan', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ cloudLink: trimmed }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const message = (payload as { message?: string }).message ?? 'Не удалось просканировать облако';
-        throw new Error(message);
-      }
-      const normalized = (payload as { cloudLink?: string }).cloudLink;
-      const resources = Array.isArray((payload as { resources?: unknown }).resources)
-        ? ((payload as { resources: CloudPreviewItem[] }).resources)
-        : [];
-      const resolvedLink = normalized ?? trimmed;
-      setCloudLink(resolvedLink);
-      setCloudLinkInput(resolvedLink);
-      setCloudPreview(resources);
-    } catch (err) {
-      setCloudLink(null);
-      setCloudPreview(null);
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Неизвестная ошибка при проверке облака.');
-      }
-    } finally {
-      setCloudPreviewLoading(false);
-    }
-  };
-
-  const applyReportPatch = (patched: {
-    id: string;
-    originalName?: string;
-    cloudLink?: string | null;
-    addedToCloud?: boolean;
-  }) => {
-    setReports((current) =>
-      current.map((item) => {
-        if (item.id !== patched.id) {
-          return item;
-        }
-        return {
-          ...item,
-          ...(patched.originalName !== undefined ? { originalName: patched.originalName } : {}),
-          ...(patched.cloudLink !== undefined ? { cloudLink: patched.cloudLink } : {}),
-          ...(patched.addedToCloud !== undefined ? { addedToCloud: patched.addedToCloud } : {}),
-        };
-      })
-    );
-    setCheckDetails((current) => {
-      if (!current || current.reportId !== patched.id) {
-        return current;
-      }
-      return {
-        ...current,
-        ...(patched.originalName !== undefined ? { reportName: patched.originalName } : {}),
-        ...(patched.cloudLink !== undefined ? { reportCloudLink: patched.cloudLink } : {}),
-        ...(patched.addedToCloud !== undefined ? { reportAddedToCloud: patched.addedToCloud } : {}),
-      };
-    });
-  };
-
-  const requestCloudLinkUpdate = async (reportId: string, currentLink: string | null) => {
-    const nextLink = window.prompt('Вставьте ссылку на облачный диск', currentLink ?? '');
-    if (nextLink === null) {
-      return;
-    }
-    const trimmed = nextLink.trim();
-    setCloudActionId(reportId);
-    setError(null);
-    try {
-      const response = await fetch(`/api/reports/${reportId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ cloudLink: trimmed.length ? trimmed : null }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const message = (payload as { message?: string }).message ?? 'Не удалось сохранить ссылку';
-        throw new Error(message);
-      }
-      if (payload && typeof payload === 'object' && 'report' in payload) {
-        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
-        applyReportPatch({
-          id: reportPayload.id,
-          originalName: reportPayload.originalName,
-          cloudLink: reportPayload.cloudLink ?? null,
-          addedToCloud: reportPayload.addedToCloud ?? false,
-        });
-      }
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Неизвестная ошибка при обновлении ссылки');
-      }
-    } finally {
-      setCloudActionId(null);
-    }
-  };
-
-  const markReportAddedToCloud = async (reportId: string) => {
-    const report = reports.find((item) => item.id === reportId);
-    const existingLink = report?.cloudLink ?? (checkDetails?.reportId === reportId ? checkDetails.reportCloudLink : null);
-    if (!existingLink) {
-      setError('Сначала добавьте ссылку на облачный диск.');
-      return;
-    }
-    setCloudActionId(reportId);
-    setError(null);
-    try {
-      const response = await fetch(`/api/reports/${reportId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ addedToCloud: true }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        const message = (payload as { message?: string }).message ?? 'Не удалось обновить статус отчета';
-        throw new Error(message);
-      }
-      if (payload && typeof payload === 'object' && 'report' in payload) {
-        const reportPayload = (payload as { report: { id: string; originalName?: string; cloudLink?: string | null; addedToCloud?: boolean } }).report;
-        applyReportPatch({
-          id: reportPayload.id,
-          originalName: reportPayload.originalName,
-          cloudLink: reportPayload.cloudLink ?? null,
-          addedToCloud: reportPayload.addedToCloud ?? false,
-        });
-      }
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Неизвестная ошибка при обновлении статуса облака');
-      }
-    } finally {
-      setCloudActionId(null);
     }
   };
 
@@ -436,19 +257,12 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="card card--hero fade-in">
         <span className="card__eyebrow">Быстрый старт</span>
-        <h2 className="card__title">Подключите облако и проверяйте отчеты на плагиат</h2>
+        <h2 className="card__title">Проверяйте отчеты на плагиат</h2>
         <p className="card__subtitle">
-          Сначала добавьте ссылку на облачное хранилище с эталонными материалами, затем загружайте новые PDF-отчеты. DiffPress
-          сравнит их с базой из облака и покажет совпадения в формате git diff.
+          Облачная папка с эталонными материалами подключена автоматически. Загрузите PDF-отчеты, и DiffPress сравнит их с
+          архивом и покажет совпадения в формате git diff.
         </p>
         <div className="hero-actions">
-          <button
-            type="button"
-            className="button button--primary"
-            onClick={() => cloudInputRef.current?.focus()}
-          >
-            Добавить ссылку на облако
-          </button>
           <button
             type="button"
             className="button button--secondary"
@@ -457,18 +271,8 @@ export default function HomePage() {
             Загрузить PDF
           </button>
           <span className="text-muted">
-            {cloudPreview ? (
-              <>
-                Облако подключено: найдено {cloudPreviewCount}{' '}
-                {pluralize(cloudPreviewCount, 'файл', 'файла', 'файлов')}
-              </>
-            ) : (
-              <>
-                В облачной базе:{' '}
-                {cloudReportsCount}{' '}
-                {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
-              </>
-            )}
+            В облачной базе: {cloudReportsCount}{' '}
+            {pluralize(cloudReportsCount, 'отчет', 'отчета', 'отчетов')}
           </span>
           {selectedCheckId && (
             <span className="status-chip status-chip--processing">Проверка #{selectedCheckId.slice(0, 8)}…</span>
@@ -489,103 +293,9 @@ export default function HomePage() {
               <div className="upload-step__header">
                 <div>
                   <span className="upload-step__badge">Шаг 1</span>
-                  <h4 className="upload-step__title">Добавьте ссылку на облачное хранилище</h4>
-                  <p className="upload-step__description">
-                    Укажите папку с оригинальными файлами. Только отчеты с добавленной ссылкой участвуют в проверках на плагиат.
-                  </p>
-                </div>
-                {cloudPreviewCount > 0 ? (
-                  <span className="status-chip status-chip--completed">
-                    Найдено {cloudPreviewCount}{' '}
-                    {pluralize(cloudPreviewCount, 'файл', 'файла', 'файлов')}
-                  </span>
-                ) : (
-                  cloudLink && <span className="status-chip status-chip--completed">Ссылка добавлена</span>
-                )}
-              </div>
-              <div className="upload-step__controls">
-                <input
-                  ref={cloudInputRef}
-                  className="form-field__input"
-                  type="url"
-                  placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
-                  value={cloudLinkInput}
-                  onChange={(event) => {
-                    setCloudLinkInput(event.target.value);
-                    setError(null);
-                  }}
-                  disabled={Boolean(cloudLink)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      confirmCloudLink();
-                    }
-                  }}
-                />
-                <div className="upload-step__actions">
-                  {cloudLink ? (
-                    <button
-                      type="button"
-                      className="button button--ghost"
-                      onClick={() => {
-                        setCloudLink(null);
-                        setError(null);
-                        setCloudPreview(null);
-                        setTimeout(() => {
-                          cloudInputRef.current?.focus();
-                        }, 0);
-                      }}
-                    >
-                      Изменить ссылку
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="button button--primary"
-                      onClick={() => {
-                        confirmCloudLink();
-                      }}
-                      disabled={cloudPreviewLoading}
-                    >
-                      Добавить ссылку
-                    </button>
-                  )}
-                </div>
-              </div>
-              {cloudPreviewLoading ? (
-                <div className="cloud-preview cloud-preview--loading">
-                  <p className="loading-pulse">Сканирование облака…</p>
-                </div>
-              ) : cloudPreview && cloudPreview.length ? (
-                <div className="cloud-preview fade-in">
-                  <div className="cloud-preview__header">
-                    <h5 className="cloud-preview__title">Найденные файлы</h5>
-                    <span className="cloud-preview__count">
-                      {cloudPreview.length}{' '}
-                      {pluralize(cloudPreview.length, 'файл', 'файла', 'файлов')}
-                    </span>
-                  </div>
-                  <ul className="cloud-preview__list">
-                    {cloudPreview.map((item) => (
-                      <li key={`${item.name}:${item.status}`} className="cloud-preview__item">
-                        <span className="cloud-preview__name">{item.name}</span>
-                        <span className={`cloud-preview__badge cloud-preview__badge--${item.status}`}>
-                          {cloudPreviewStatusLabel(item.status)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="cloud-preview__hint">Эти файлы будут использованы для сравнения при проверке новых отчетов.</p>
-                </div>
-              ) : null}
-            </div>
-            <div className="upload-step">
-              <div className="upload-step__header">
-                <div>
-                  <span className="upload-step__badge">Шаг 2</span>
                   <h4 className="upload-step__title">Загрузите PDF для проверки</h4>
                   <p className="upload-step__description">
-                    Вы можете выбрать один или несколько PDF-файлов. Для каждого будет запущена отдельная проверка по облачной базе.
+                    Выберите один или несколько PDF-файлов. Для каждого будет запущена отдельная проверка по облачной базе.
                   </p>
                 </div>
                 {fileNames.length > 0 && (
@@ -625,7 +335,7 @@ export default function HomePage() {
               {loading ? 'Отправка…' : 'Отправить на проверку'}
             </button>
             <span className="text-muted">
-              Проверка выполняется только по отчетам из облачной базы. Добавьте ссылку, чтобы включить материалы в сравнение.
+              Проверка выполняется по отчетам, импортированным из облачной папки.
             </span>
           </div>
         </form>
@@ -637,7 +347,7 @@ export default function HomePage() {
           <div className="card__header-stack">
             <h3 className="card__header-title">База отчетов</h3>
             <span className="text-muted">
-              Отчеты с добавленной облачной ссылкой участвуют в проверках. Выберите запись, чтобы увидеть результаты.
+              Отчеты, импортированные из облачной папки, помечены статусом «В облачной базе». Выберите запись, чтобы увидеть результаты.
             </span>
           </div>
           <div className="card__header-actions">
@@ -659,7 +369,7 @@ export default function HomePage() {
                 <th>Дата загрузки</th>
                 <th>Статус проверки</th>
                 <th>Совпадение</th>
-                <th>Облачная база</th>
+                <th>Источник</th>
                 <th></th>
               </tr>
             </thead>
@@ -684,37 +394,13 @@ export default function HomePage() {
                     </td>
                     <td>{similarityText}</td>
                     <td>
-                      <div className="cloud-cell">
-                        {report.cloudLink ? (
-                          <a
-                            className="cloud-cell__link"
-                            href={report.cloudLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Открыть облако
-                          </a>
-                        ) : (
-                          <span className="text-muted">Ссылка не указана</span>
-                        )}
-                        <div className="cloud-cell__footer">
-                          <span
-                            className={`status-chip ${
-                              report.addedToCloud ? 'status-chip--completed' : 'status-chip--muted'
-                            }`}
-                          >
-                            {report.addedToCloud ? 'В облачной базе' : 'Не в базе'}
-                          </span>
-                          <button
-                            type="button"
-                            className="button button--ghost cloud-cell__action"
-                            onClick={() => requestCloudLinkUpdate(report.id, report.cloudLink)}
-                            disabled={cloudActionId === report.id}
-                          >
-                            {report.cloudLink ? 'Изменить' : 'Добавить'}
-                          </button>
-                        </div>
-                      </div>
+                      <span
+                        className={`status-chip ${
+                          report.addedToCloud ? 'status-chip--completed' : 'status-chip--muted'
+                        }`}
+                      >
+                        {report.addedToCloud ? 'В облачной базе' : 'Загружен вручную'}
+                      </span>
                     </td>
                     <td>
                       <div className="table__actions">
@@ -762,68 +448,9 @@ export default function HomePage() {
               ` Максимальное совпадение: ${checkDetails.similarity.toFixed(2)}%.`}
           </p>
 
-          <div className="cloud-panel">
-            <div className="cloud-panel__header">
-              <h4 className="cloud-panel__title">Облачный диск</h4>
-              <span
-                className={`status-chip ${
-                  checkDetails.reportAddedToCloud ? 'status-chip--completed' : 'status-chip--muted'
-                }`}
-              >
-                {checkDetails.reportAddedToCloud ? 'Отчет в облачной базе' : 'Не в базе'}
-              </span>
-            </div>
-            <p className="cloud-panel__description">
-              Укажите ссылку на папку в облачном хранилище, где лежат оригинальные отчеты. Только такие отчеты попадают в облачную
-              базу для последующих проверок.
-            </p>
-            <div className="cloud-panel__actions">
-              {checkDetails.reportCloudLink ? (
-                <>
-                  <a
-                    className="button button--secondary"
-                    href={checkDetails.reportCloudLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Открыть диск
-                  </a>
-                  <button
-                    type="button"
-                    className="button button--ghost"
-                    onClick={() => requestCloudLinkUpdate(checkDetails.reportId, checkDetails.reportCloudLink)}
-                    disabled={cloudActionId === checkDetails.reportId}
-                  >
-                    Изменить ссылку
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="button button--ghost"
-                  onClick={() => requestCloudLinkUpdate(checkDetails.reportId, null)}
-                  disabled={cloudActionId === checkDetails.reportId}
-                >
-                  Добавить ссылку
-                </button>
-              )}
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={() => markReportAddedToCloud(checkDetails.reportId)}
-                disabled={
-                  cloudActionId === checkDetails.reportId ||
-                  !checkDetails.reportCloudLink ||
-                  checkDetails.reportAddedToCloud
-                }
-              >
-                {checkDetails.reportAddedToCloud ? 'Добавлено' : 'Добавить отчет в облако'}
-              </button>
-            </div>
-            {!checkDetails.reportCloudLink && (
-              <p className="cloud-panel__hint">Без ссылки мы не сможем сохранить путь к облаку для этого отчета.</p>
-            )}
-          </div>
+          <p className="cloud-panel__description">
+            Сравнение выполняется с файлами, импортированными из подключенной облачной папки.
+          </p>
 
           {checkDetails.matches.length === 0 ? (
             <div className="diff-placeholder">
@@ -898,18 +525,6 @@ function statusLabel(status: string) {
       return 'Ошибка';
     default:
       return status;
-  }
-}
-
-function cloudPreviewStatusLabel(status: CloudPreviewItem['status']) {
-  switch (status) {
-    case 'existing':
-      return 'Уже в базе';
-    case 'pending':
-      return 'Будет активирован';
-    case 'new':
-    default:
-      return 'Новый файл';
   }
 }
 

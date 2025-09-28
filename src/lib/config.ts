@@ -21,4 +21,6 @@ export const config = {
   storageDir,
   textIndexDir,
   databasePath: resolve(databaseDir, 'reports.sqlite'),
+  cloudArchiveLink:
+    process.env.CLOUD_ARCHIVE_LINK?.trim() || 'https://disk.yandex.ru/d/JN_BKCimDkzkLw',
 };
