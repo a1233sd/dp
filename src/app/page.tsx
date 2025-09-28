@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { DiffViewer, DiffSegment } from './components/DiffViewer';
+import { CloudMatchViewer, DiffSegment } from './components/CloudMatchViewer';
 
 interface ReportListItem {
   id: string;
@@ -266,8 +266,8 @@ export default function HomePage() {
         <span className="card__eyebrow">Быстрый старт</span>
         <h2 className="card__title">Проверяйте отчеты на плагиат</h2>
         <p className="card__subtitle">
-          Облачная папка с эталонными материалами подключена автоматически. Загрузите PDF-отчеты, и DiffPress сравнит их с
-          архивом и покажет совпадения в формате git diff.
+          Облачная папка с эталонными материалами подключена автоматически. Загрузите PDF-отчеты, и сервис покажет
+          совпадения с текстами из облака прямо в документе.
         </p>
         <div className="hero-actions">
           <button
@@ -470,7 +470,7 @@ export default function HomePage() {
                 <p className="text-muted">
                   {checkDetails.matches.length}{' '}
                   {pluralize(checkDetails.matches.length, 'совпадение', 'совпадения', 'совпадений')} найдено.
-                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть подробный diff.
+                  Сравнение проводится с отчетами, добавленными в облако. Выберите файл, чтобы увидеть текст с подсветкой совпадений.
                 </p>
                 <ul className="matches-list">
                   {checkDetails.matches.map((match) => {
@@ -505,10 +505,10 @@ export default function HomePage() {
                 {diffLoading ? (
                   <p className="loading-pulse">Загрузка совпадения…</p>
                 ) : selectedMatch ? (
-                  <DiffViewer segments={diff} />
+                  <CloudMatchViewer segments={diff} />
                 ) : (
                   <div className="diff-placeholder">
-                    Выберите совпадение слева, чтобы увидеть детальное сравнение в стиле git diff.
+                    Выберите совпадение слева, чтобы увидеть текст из облака с подчеркнутыми совпадениями.
                   </div>
                 )}
               </div>
