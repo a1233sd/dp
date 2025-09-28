@@ -39,10 +39,12 @@ export async function GET() {
         : null,
     };
   });
-  const cloudReportsCount = cloudSyncResult
-    ? cloudSyncResult.imported + cloudSyncResult.activated + cloudSyncResult.skipped
-    : reports.filter((report) => report.addedToCloud).length;
-  return NextResponse.json({ reports, cloudReportsCount });
+  const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
+  return NextResponse.json({
+    reports,
+    cloudReportsCount,
+    cloudSyncErrors: cloudSyncResult?.errors ?? [],
+  });
 }
 
 export async function POST(req: NextRequest) {

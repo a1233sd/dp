@@ -101,6 +101,7 @@ describe('GET /api/reports', () => {
         },
       ],
       cloudReportsCount: 1,
+      cloudSyncErrors: [],
     });
   });
 
