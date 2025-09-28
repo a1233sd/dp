@@ -37,6 +37,7 @@ interface MatchResult {
 
 export default function HomePage() {
   const [reports, setReports] = useState<ReportListItem[]>([]);
+  const [cloudReportsCount, setCloudReportsCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
@@ -48,7 +49,6 @@ export default function HomePage() {
   const [deleteAllLoading, setDeleteAllLoading] = useState(false);
   const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
 
   const clearCheckState = () => {
     setSelectedCheckId(null);
@@ -70,6 +70,13 @@ export default function HomePage() {
         addedToCloud: report.addedToCloud ?? false,
       }))
     );
+    if (typeof data.cloudReportsCount === 'number' && Number.isFinite(data.cloudReportsCount)) {
+      setCloudReportsCount(data.cloudReportsCount);
+    } else {
+      setCloudReportsCount(
+        data.reports.filter((report: ReportListItem) => Boolean(report.addedToCloud)).length
+      );
+    }
   };
 
   useEffect(() => {

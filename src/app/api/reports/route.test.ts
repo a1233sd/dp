@@ -57,6 +57,7 @@ describe('GET /api/reports', () => {
   });
 
   it('synchronizes cloud storage before listing reports', async () => {
+    syncCloudStorageMock.mockResolvedValueOnce({ imported: 0, activated: 0, skipped: 1, errors: [] });
     listReportsMock.mockReturnValue([
       {
         id: 'report-1',
@@ -99,6 +100,7 @@ describe('GET /api/reports', () => {
           },
         },
       ],
+      cloudReportsCount: 1,
     });
   });
 
