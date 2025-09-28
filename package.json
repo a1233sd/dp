@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "tsx scripts/reset-db.ts",
     "dev": "next dev",
+    "prebuild": "tsx scripts/reset-db.ts",
     "build": "next build",
+    "prestart": "tsx scripts/reset-db.ts",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "premigrate": "tsx scripts/reset-db.ts",
     "migrate": "tsx scripts/migrate-db.ts"
   },
   "dependencies": {
