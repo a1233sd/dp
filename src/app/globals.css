@@ -4,6 +4,7 @@
   --color-slate-950: #020617;
   --color-slate-900: #0f172a;
   --color-slate-700: #334155;
+  --color-slate-600: #475569;
   --color-slate-500: #64748b;
   --color-slate-300: #cbd5f5;
   --color-slate-200: #e2e8f0;
@@ -271,6 +272,70 @@ a {
   display: flex;
   flex-direction: column;
   gap: 1.2rem;
+}
+
+.upload-steps {
+  display: grid;
+  gap: 1.4rem;
+}
+
+.upload-step {
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 1rem;
+  padding: 1.4rem;
+  background: rgba(37, 99, 235, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.upload-step__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.upload-step__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.5rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.16);
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.6rem;
+}
+
+.upload-step__title {
+  margin: 0 0 0.45rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.upload-step__description {
+  margin: 0;
+  color: var(--color-slate-600);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.upload-step__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.upload-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
 }
 
 .dropzone {
