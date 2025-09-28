@@ -114,7 +114,8 @@ if (checksReferencesReportsOld || checksOldExists) {
     db.exec(`
       INSERT OR REPLACE INTO checks (id, report_id, status, similarity, matches, created_at, completed_at)
       SELECT id, report_id, status, similarity, matches, created_at, completed_at
-      FROM checks_old;
+      FROM checks_old
+      WHERE report_id IN (SELECT id FROM reports);
     `);
     db.exec('DROP TABLE IF EXISTS checks_old;');
   }
