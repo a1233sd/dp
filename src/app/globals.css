@@ -840,6 +840,18 @@ a {
   text-align: center;
 }
 
+.match-viewer-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.match-viewer__meta {
+  margin: 0;
+  color: var(--color-slate-500);
+  font-size: 0.95rem;
+}
+
 .match-viewer {
   position: relative;
   border-radius: 1rem;
