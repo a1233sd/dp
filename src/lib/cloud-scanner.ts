@@ -49,8 +49,35 @@ function guessFileName(sourceUrl: string): string {
   return 'cloud-file.pdf';
 }
 
+function ensureDirectoryBase(base: string): string {
+  try {
+    const parsed = new URL(base);
+    if (parsed.pathname.endsWith('/')) {
+      return parsed.toString();
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const last = segments.at(-1);
+
+    if (!last) {
+      return parsed.toString();
+    }
+
+    const hasExtension = last.includes('.') || /%2e/i.test(last);
+    if (hasExtension) {
+      return parsed.toString();
+    }
+
+    parsed.pathname = `${parsed.pathname}/`;
+    return parsed.toString();
+  } catch {
+    return base;
+  }
+}
+
 function normaliseUrl(base: string, value: string): string {
-  return new URL(value, base).toString();
+  const normalisedBase = ensureDirectoryBase(base);
+  return new URL(value, normalisedBase).toString();
 }
 
 const BROWSER_FETCH_HEADERS: Record<string, string> = {
