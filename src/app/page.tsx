@@ -46,10 +46,12 @@ export default function HomePage() {
   const [selectedMatch, setSelectedMatch] = useState<MatchResult | null>(null);
   const [diff, setDiff] = useState<DiffSegment[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [cloudLinkValue, setCloudLinkValue] = useState('');
+  const [fileNames, setFileNames] = useState<string[]>([]);
+  const [cloudLinkInput, setCloudLinkInput] = useState('');
+  const [cloudLink, setCloudLink] = useState<string | null>(null);
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cloudInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
 
   const loadReports = async () => {
@@ -128,10 +130,16 @@ export default function HomePage() {
 
   const handleUpload = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!cloudLink) {
+      setError('Сначала добавьте ссылку на облачное хранилище.');
+      return;
+    }
     const formData = new FormData(event.currentTarget);
-    const file = formData.get('file');
-    if (!(file instanceof File)) {
-      setError('Выберите PDF файл');
+    const files = formData
+      .getAll('files')
+      .filter((item): item is File => item instanceof File && item.size > 0);
+    if (files.length === 0) {
+      setError('Выберите хотя бы один PDF файл');
       return;
     }
     setLoading(true);
@@ -139,18 +147,30 @@ export default function HomePage() {
     try {
       const response = await fetch('/api/reports', {
         method: 'POST',
-        body: formData,
+        body: (() => {
+          const payload = new FormData();
+          files.forEach((file) => {
+            payload.append('files', file);
+          });
+          payload.set('cloudLink', cloudLink);
+          return payload;
+        })(),
       });
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message ?? 'Ошибка загрузки файла');
+        const message = (payload as { message?: string }).message ?? 'Ошибка загрузки файла';
+        throw new Error(message);
       }
-      const data = await response.json();
-      setSelectedCheckId(data.checkId);
+      const queuedItems = Array.isArray((payload as { items?: unknown }).items)
+        ? ((payload as { items: { checkId: string }[] }).items)
+        : [payload as { checkId?: string }];
+      const checkWithId = queuedItems.find((item) => item && typeof item.checkId === 'string');
+      if (checkWithId?.checkId) {
+        setSelectedCheckId(checkWithId.checkId);
+      }
       await loadReports();
       event.currentTarget.reset();
-      setFileName(null);
-      setCloudLinkValue('');
+      setFileNames([]);
     } catch (err) {
       if (err instanceof Error) {
         setError(err.message);
@@ -159,6 +179,23 @@ export default function HomePage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const confirmCloudLink = () => {
+    const trimmed = cloudLinkInput.trim();
+    if (!trimmed) {
+      setError('Введите ссылку на облачное хранилище.');
+      return;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      const normalized = parsed.toString();
+      setCloudLink(normalized);
+      setCloudLinkInput(normalized);
+      setError(null);
+    } catch {
+      setError('Некорректная ссылка на облачное хранилище.');
     }
   };
 
@@ -281,15 +318,22 @@ export default function HomePage() {
     <div className="page-stack">
       <section className="card card--hero fade-in">
         <span className="card__eyebrow">Быстрый старт</span>
-        <h2 className="card__title">Загрузите PDF и найдите совпадения с облачной базой</h2>
+        <h2 className="card__title">Подключите облако и проверяйте отчеты на плагиат</h2>
         <p className="card__subtitle">
-          DiffPress анализирует новые лабораторные отчеты, сравнивает их с архивом, размещенным в облаке, и показывает совпадения
-          в формате git diff, чтобы сразу увидеть заимствования.
+          Сначала добавьте ссылку на облачное хранилище с эталонными материалами, затем загружайте новые PDF-отчеты. DiffPress
+          сравнит их с базой из облака и покажет совпадения в формате git diff.
         </p>
         <div className="hero-actions">
           <button
             type="button"
             className="button button--primary"
+            onClick={() => cloudInputRef.current?.focus()}
+          >
+            Добавить ссылку на облако
+          </button>
+          <button
+            type="button"
+            className="button button--secondary"
             onClick={() => fileInputRef.current?.click()}
           >
             Загрузить PDF
@@ -313,50 +357,107 @@ export default function HomePage() {
           )}
         </div>
         <form onSubmit={handleUpload} className="upload-form">
-          <label className="dropzone">
-            <input
-              ref={fileInputRef}
-              className="dropzone__input"
-              type="file"
-              name="file"
-              accept="application/pdf"
-              required
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                setFileName(file ? file.name : null);
-              }}
-            />
-            <div className="dropzone__content">
-              <div className="dropzone__icon">⬆️</div>
-              <div className="dropzone__text">
-                {fileName ? `Выбран файл: ${fileName}` : 'Перетащите PDF или выберите файл'}
+          <div className="upload-steps">
+            <div className="upload-step">
+              <div className="upload-step__header">
+                <div>
+                  <span className="upload-step__badge">Шаг 1</span>
+                  <h4 className="upload-step__title">Добавьте ссылку на облачное хранилище</h4>
+                  <p className="upload-step__description">
+                    Укажите папку с оригинальными файлами. Только отчеты с добавленной ссылкой участвуют в проверках на плагиат.
+                  </p>
+                </div>
+                {cloudLink && <span className="status-chip status-chip--completed">Ссылка добавлена</span>}
               </div>
-              <div className="dropzone__hint">Формат PDF, текст будет извлечен автоматически</div>
+              <div className="upload-step__controls">
+                <input
+                  ref={cloudInputRef}
+                  className="form-field__input"
+                  type="url"
+                  placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
+                  value={cloudLinkInput}
+                  onChange={(event) => {
+                    setCloudLinkInput(event.target.value);
+                    setError(null);
+                  }}
+                  disabled={Boolean(cloudLink)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      confirmCloudLink();
+                    }
+                  }}
+                />
+                <div className="upload-step__actions">
+                  {cloudLink ? (
+                    <button
+                      type="button"
+                      className="button button--ghost"
+                      onClick={() => {
+                        setCloudLink(null);
+                        setError(null);
+                        setTimeout(() => {
+                          cloudInputRef.current?.focus();
+                        }, 0);
+                      }}
+                    >
+                      Изменить ссылку
+                    </button>
+                  ) : (
+                    <button type="button" className="button button--primary" onClick={confirmCloudLink}>
+                      Добавить ссылку
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
-          </label>
-          <div className="form-field">
-            <label htmlFor="cloudLink" className="form-field__label">
-              Ссылка на облачный диск
-            </label>
-            <input
-              id="cloudLink"
-              name="cloudLink"
-              className="form-field__input"
-              type="url"
-              placeholder="https://disk.yandex.ru/... или https://cloud.mail.ru/..."
-              value={cloudLinkValue}
-              onChange={(event) => setCloudLinkValue(event.target.value)}
-            />
-            <span className="form-field__hint">
-              Укажите папку с исходными файлами. Отчеты, помеченные как добавленные в облако, участвуют в проверках на плагиат.
-            </span>
+            <div className="upload-step">
+              <div className="upload-step__header">
+                <div>
+                  <span className="upload-step__badge">Шаг 2</span>
+                  <h4 className="upload-step__title">Загрузите PDF для проверки</h4>
+                  <p className="upload-step__description">
+                    Вы можете выбрать один или несколько PDF-файлов. Для каждого будет запущена отдельная проверка по облачной базе.
+                  </p>
+                </div>
+                {fileNames.length > 0 && (
+                  <span className="status-chip status-chip--queued">Выбрано {fileNames.length}</span>
+                )}
+              </div>
+              <label className="dropzone">
+                <input
+                  ref={fileInputRef}
+                  className="dropzone__input"
+                  type="file"
+                  name="files"
+                  accept="application/pdf"
+                  multiple
+                  onChange={(event) => {
+                    const filesList = event.target.files ? Array.from(event.target.files) : [];
+                    setFileNames(filesList.map((file) => file.name));
+                    setError(null);
+                  }}
+                />
+                <div className="dropzone__content">
+                  <div className="dropzone__icon">⬆️</div>
+                  <div className="dropzone__text">
+                    {fileNames.length === 0
+                      ? 'Перетащите PDF или выберите файлы'
+                      : fileNames.length === 1
+                      ? `Выбран файл: ${fileNames[0]}`
+                      : `Выбрано файлов: ${fileNames.length}`}
+                  </div>
+                  <div className="dropzone__hint">Формат PDF, текст будет извлечен автоматически</div>
+                </div>
+              </label>
+            </div>
           </div>
           <div className="form-footer">
             <button type="submit" className="button button--primary" disabled={loading}>
               {loading ? 'Отправка…' : 'Отправить на проверку'}
             </button>
             <span className="text-muted">
-              Проверка выполняется по архиву из облачного хранилища. Добавляйте ссылки, чтобы включить отчеты в базу.
+              Проверка выполняется только по отчетам из облачной базы. Добавьте ссылку, чтобы включить материалы в сравнение.
             </span>
           </div>
         </form>

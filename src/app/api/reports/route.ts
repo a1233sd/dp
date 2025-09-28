@@ -28,7 +28,6 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const formData = await req.formData();
-  const file = formData.get('file');
   const cloudLinkRaw = formData.get('cloudLink');
   let cloudLink: string | null = null;
 
@@ -39,42 +38,64 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ message: 'Некорректная ссылка на облачный диск' }, { status: 400 });
     }
+  } else {
+    return NextResponse.json({ message: 'Ссылка на облачное хранилище обязательна' }, { status: 400 });
   }
 
-  if (!(file instanceof File)) {
-    return NextResponse.json({ message: 'Файл не найден в запросе' }, { status: 400 });
+  const files = formData
+    .getAll('files')
+    .filter((item): item is File => item instanceof File && item.size > 0);
+
+  const fileList = files.length
+    ? files
+    : (() => {
+        const single = formData.get('file');
+        return single instanceof File && single.size > 0 ? [single] : [];
+      })();
+
+  if (!fileList.length) {
+    return NextResponse.json({ message: 'Файлы не найдены в запросе' }, { status: 400 });
   }
-  if (file.type !== 'application/pdf') {
-    return NextResponse.json({ message: 'Поддерживаются только PDF файлы' }, { status: 400 });
+
+  const results: { reportId: string; checkId: string; status: string }[] = [];
+
+  for (const file of fileList) {
+    if (file.type !== 'application/pdf') {
+      return NextResponse.json(
+        { message: `Файл «${file.name}» не является PDF` },
+        { status: 400 }
+      );
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const buffer = Buffer.from(uint8Array);
+    const pdfData = await parsePdf(uint8Array);
+
+    if (!pdfData.text.trim()) {
+      return NextResponse.json(
+        { message: `Не удалось извлечь текст из PDF «${file.name}»` },
+        { status: 400 }
+      );
+    }
+
+    const stored = persistReportFile(buffer, file.name);
+    const textIndex = persistReportText(stored.id, pdfData.text);
+    const report = createReport({
+      id: stored.id,
+      original_name: file.name,
+      stored_name: stored.storedName,
+      text_index: textIndex.index,
+      cloud_link: cloudLink,
+    });
+
+    const check = queueCheck(report.id);
+    results.push({ reportId: report.id, checkId: check.id, status: check.status });
   }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
-  const buffer = Buffer.from(uint8Array);
-  const pdfData = await parsePdf(uint8Array);
-
-  if (!pdfData.text.trim()) {
-    return NextResponse.json({ message: 'Не удалось извлечь текст из PDF' }, { status: 400 });
+  if (results.length === 1) {
+    return NextResponse.json(results[0], { status: 202 });
   }
 
-  const stored = persistReportFile(buffer, file.name);
-  const textIndex = persistReportText(stored.id, pdfData.text);
-  const report = createReport({
-    id: stored.id,
-    original_name: file.name,
-    stored_name: stored.storedName,
-    text_index: textIndex.index,
-    cloud_link: cloudLink,
-  });
-
-  const check = queueCheck(report.id);
-
-  return NextResponse.json(
-    {
-      reportId: report.id,
-      checkId: check.id,
-      status: check.status,
-    },
-    { status: 202 }
-  );
+  return NextResponse.json({ items: results }, { status: 202 });
 }
