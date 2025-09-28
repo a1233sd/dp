@@ -6,6 +6,33 @@ export interface DiffSegment {
   value: string;
 }
 
+function sanitizeDiffIndicators(value: string) {
+  return value.replace(/^[+-]\s?/gm, '');
+}
+
+function renderMatchValue(value: string) {
+  const lines = value.split('\n');
+  const nodes: (string | JSX.Element)[] = [];
+
+  lines.forEach((line, index) => {
+    if (line.trim().length > 0) {
+      nodes.push(
+        <span key={`match-${index}`} className="diff-line__match-fragment">
+          {line}
+        </span>,
+      );
+    } else if (line.length > 0) {
+      nodes.push(line);
+    }
+
+    if (index < lines.length - 1) {
+      nodes.push('\n');
+    }
+  });
+
+  return nodes.length ? nodes : value;
+}
+
 export function DiffViewer({ segments }: { segments: DiffSegment[] }) {
   if (!segments.length) {
     return <div className="diff-placeholder">Нет данных для сравнения.</div>;
@@ -16,16 +43,18 @@ export function DiffViewer({ segments }: { segments: DiffSegment[] }) {
         const isMatch = !segment.added && !segment.removed;
         const lineClass = [
           'diff-line',
-          segment.added && 'diff-line--added',
-          segment.removed && 'diff-line--removed',
           isMatch && 'diff-line--match',
-          isMatch && 'diff-line--context',
         ]
           .filter(Boolean)
           .join(' ');
+        const value = segment.added || segment.removed
+          ? sanitizeDiffIndicators(segment.value)
+          : segment.value;
         return (
           <div key={index} className={lineClass}>
-            <pre className="diff-line__content">{segment.value}</pre>
+            <pre className="diff-line__content">
+              {isMatch ? renderMatchValue(value) : value}
+            </pre>
           </div>
         );
       })}

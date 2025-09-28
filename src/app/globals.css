@@ -857,22 +857,11 @@ a {
   border-radius: 0.6rem;
   line-height: 1.45;
   transition: background 160ms ease;
+  background: transparent;
 }
 
 .diff-line + .diff-line {
   margin-top: 0.3rem;
-}
-
-.diff-line--added {
-  background: rgba(34, 197, 94, 0.2);
-}
-
-.diff-line--removed {
-  background: rgba(239, 68, 68, 0.22);
-}
-
-.diff-line--context:hover {
-  background: rgba(148, 163, 184, 0.15);
 }
 
 .diff-line__content {
@@ -881,6 +870,10 @@ a {
 }
 
 .diff-line--match .diff-line__content {
+  display: inline;
+}
+
+.diff-line__match-fragment {
   text-decoration-line: underline;
   text-decoration-color: #ef4444;
   text-decoration-thickness: 0.12em;
