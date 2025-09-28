@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getReportById, listChecks, updateReport } from '@/lib/repository';
+import { deleteReport, getReportById, listChecks, updateReport } from '@/lib/repository';
 import { CloudLinkValidationError, normalizeCloudLink } from '@/lib/cloud-link';
+import { removeReportFile, removeReportText } from '@/lib/storage';
 
 export async function GET(
   _req: NextRequest,
@@ -96,6 +97,23 @@ export async function PATCH(
       createdAt: updated.created_at,
       cloudLink: updated.cloud_link,
       addedToCloud: Boolean(updated.added_to_cloud),
+    },
+  });
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const removed = deleteReport(params.id);
+  if (!removed) {
+    return NextResponse.json({ message: 'Отчет не найден' }, { status: 404 });
+  }
+  removeReportFile(removed.stored_name);
+  removeReportText(removed.text_index);
+  return NextResponse.json({
+    report: {
+      id: removed.id,
     },
   });
 }

@@ -57,10 +57,19 @@ export default function HomePage() {
   const [cloudActionId, setCloudActionId] = useState<string | null>(null);
   const [cloudPreview, setCloudPreview] = useState<CloudPreviewItem[] | null>(null);
   const [cloudPreviewLoading, setCloudPreviewLoading] = useState(false);
+  const [deleteAllLoading, setDeleteAllLoading] = useState(false);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cloudInputRef = useRef<HTMLInputElement | null>(null);
   const cloudReportsCount = reports.filter((report) => report.addedToCloud).length;
   const cloudPreviewCount = cloudPreview?.length ?? 0;
+
+  const clearCheckState = () => {
+    setSelectedCheckId(null);
+    setCheckDetails(null);
+    setSelectedMatch(null);
+    setDiff([]);
+  };
 
   const loadReports = async () => {
     const response = await fetch('/api/reports');
@@ -348,6 +357,81 @@ export default function HomePage() {
     }
   };
 
+  const handleDeleteReport = async (reportId: string) => {
+    const report = reports.find((item) => item.id === reportId);
+    const reportName = report?.originalName ?? 'этот отчет';
+    if (!window.confirm(`Удалить «${reportName}» из базы?`)) {
+      return;
+    }
+    setDeletingReportId(reportId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/reports/${reportId}`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = (payload as { message?: string }).message ?? 'Не удалось удалить отчет';
+        throw new Error(message);
+      }
+      const latestCheckId = report?.latestCheck?.id ?? null;
+      setReports((current) => current.filter((item) => item.id !== reportId));
+      const shouldResetCheck =
+        (checkDetails && checkDetails.reportId === reportId) ||
+        (latestCheckId !== null && selectedCheckId === latestCheckId);
+      if (shouldResetCheck) {
+        clearCheckState();
+      } else {
+        setSelectedCheckId((current) => {
+          if (current && latestCheckId !== null && current === latestCheckId) {
+            return null;
+          }
+          return current;
+        });
+      }
+      if (selectedMatch?.reportId === reportId) {
+        setSelectedMatch(null);
+        setDiff([]);
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Не удалось удалить отчет');
+      }
+    } finally {
+      setDeletingReportId(null);
+    }
+  };
+
+  const handleDeleteAllReports = async () => {
+    if (!reports.length) {
+      return;
+    }
+    if (!window.confirm('Удалить все отчеты из базы? Действие невозможно отменить.')) {
+      return;
+    }
+    setDeleteAllLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/reports', { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = (payload as { message?: string }).message ?? 'Не удалось очистить базу отчетов';
+        throw new Error(message);
+      }
+      setReports([]);
+      clearCheckState();
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Не удалось очистить базу отчетов');
+      }
+    } finally {
+      setDeleteAllLoading(false);
+      setDeletingReportId(null);
+    }
+  };
+
   return (
     <div className="page-stack">
       <section className="card card--hero fade-in">
@@ -550,10 +634,22 @@ export default function HomePage() {
 
       <section className="card fade-in">
         <div className="card__header">
-          <h3 className="card__header-title">База отчетов</h3>
-          <span className="text-muted">
-            Отчеты с добавленной облачной ссылкой участвуют в проверках. Выберите запись, чтобы увидеть результаты.
-          </span>
+          <div className="card__header-stack">
+            <h3 className="card__header-title">База отчетов</h3>
+            <span className="text-muted">
+              Отчеты с добавленной облачной ссылкой участвуют в проверках. Выберите запись, чтобы увидеть результаты.
+            </span>
+          </div>
+          <div className="card__header-actions">
+            <button
+              type="button"
+              className="button button--ghost-danger"
+              onClick={handleDeleteAllReports}
+              disabled={deleteAllLoading || reports.length === 0}
+            >
+              {deleteAllLoading ? 'Очистка…' : 'Очистить базу'}
+            </button>
+          </div>
         </div>
         <div className="reports-table">
           <table className="table">
@@ -621,15 +717,25 @@ export default function HomePage() {
                       </div>
                     </td>
                     <td>
-                      {latestCheck && (
+                      <div className="table__actions">
+                        {latestCheck && (
+                          <button
+                            type="button"
+                            className="button button--ghost"
+                            onClick={() => setSelectedCheckId(latestCheck.id)}
+                          >
+                            Открыть
+                          </button>
+                        )}
                         <button
                           type="button"
-                          className="button button--ghost"
-                          onClick={() => setSelectedCheckId(latestCheck.id)}
+                          className="button button--ghost-danger"
+                          onClick={() => handleDeleteReport(report.id)}
+                          disabled={deletingReportId === report.id || deleteAllLoading}
                         >
-                          Открыть
+                          {deletingReportId === report.id ? 'Удаление…' : 'Удалить'}
                         </button>
-                      )}
+                      </div>
                     </td>
                   </tr>
                 );

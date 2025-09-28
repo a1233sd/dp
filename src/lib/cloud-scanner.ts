@@ -35,6 +35,108 @@ export interface CloudPreviewItem {
 
 const PDF_EXTENSION_REGEX = /\.pdf(?:$|[?#])/i;
 
+function isYandexDiskLink(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname;
+    return hostname.endsWith('disk.yandex.ru');
+  } catch {
+    return false;
+  }
+}
+
+async function resolveYandexDownloadUrl(publicKey: string, path: string): Promise<string> {
+  const params = new URLSearchParams({ public_key: publicKey });
+  if (path) {
+    params.set('path', path);
+  }
+  const response = await fetchWithBrowserHeaders(
+    `https://cloud-api.yandex.net/v1/disk/public/resources/download?${params.toString()}`
+  );
+  if (!response.ok) {
+    throw new CloudSyncError('Не удалось получить ссылку для скачивания файла из Яндекс.Диска');
+  }
+  const payload = await response.json().catch(() => null);
+  const href = payload && typeof payload.href === 'string' ? payload.href : null;
+  if (!href) {
+    throw new CloudSyncError('Не удалось получить ссылку для скачивания файла из Яндекс.Диска');
+  }
+  return href;
+}
+
+async function tryListYandexDiskResources(cloudLink: string): Promise<CloudResource[] | null> {
+  if (!isYandexDiskLink(cloudLink)) {
+    return null;
+  }
+
+  const publicKey = cloudLink;
+  const resources: CloudResource[] = [];
+  const visited = new Set<string>();
+  const queue: (string | undefined)[] = [undefined];
+
+  const fetchListing = async (path?: string) => {
+    const params = new URLSearchParams({ public_key: publicKey, limit: '500' });
+    if (path) {
+      params.set('path', path);
+    }
+    const response = await fetchWithBrowserHeaders(
+      `https://cloud-api.yandex.net/v1/disk/public/resources?${params.toString()}`
+    );
+    if (!response.ok) {
+      throw new CloudSyncError('Не удалось получить список файлов из Яндекс.Диска');
+    }
+    return response.json().catch(() => {
+      throw new CloudSyncError('Яндекс.Диск вернул некорректный список файлов');
+    });
+  };
+
+  const consumeFile = async (entry: any) => {
+    const name = typeof entry?.name === 'string' ? entry.name.trim() : '';
+    if (!name || !PDF_EXTENSION_REGEX.test(name)) {
+      return;
+    }
+    const path = typeof entry?.path === 'string' ? entry.path : '';
+    let url = typeof entry?.file === 'string' ? entry.file : undefined;
+    if (!url && path) {
+      url = await resolveYandexDownloadUrl(publicKey, path);
+    }
+    if (!url) {
+      throw new CloudSyncError(`Не удалось получить ссылку на файл «${name}» из Яндекс.Диска`);
+    }
+    resources.push({ name, url });
+  };
+
+  while (queue.length) {
+    const path = queue.shift();
+    const payload = await fetchListing(path);
+
+    if (payload?.type === 'file') {
+      await consumeFile(payload);
+      continue;
+    }
+
+    const items: any[] = Array.isArray(payload?._embedded?.items) ? payload._embedded.items : [];
+    for (const item of items) {
+      if (item?.type === 'dir') {
+        const nestedPath = typeof item.path === 'string' ? item.path : null;
+        if (nestedPath && !visited.has(nestedPath)) {
+          visited.add(nestedPath);
+          queue.push(nestedPath);
+        }
+        continue;
+      }
+      if (item?.type === 'file') {
+        await consumeFile(item);
+      }
+    }
+  }
+
+  if (!resources.length) {
+    throw new CloudSyncError('В облаке не найдены PDF файлы. Проверьте ссылку или предоставьте прямой список.');
+  }
+
+  return resources;
+}
+
 function guessFileName(sourceUrl: string): string {
   try {
     const parsed = new URL(sourceUrl);
@@ -109,6 +211,11 @@ function decodePotentiallyEscapedUrl(value: string): string {
 }
 
 async function parseListingResponse(cloudLink: string): Promise<CloudResource[]> {
+  const yandexResources = await tryListYandexDiskResources(cloudLink);
+  if (yandexResources) {
+    return yandexResources;
+  }
+
   const response = await fetchWithBrowserHeaders(cloudLink);
   if (!response.ok) {
     throw new CloudSyncError('Не удалось получить список файлов из облака');

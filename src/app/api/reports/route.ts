@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { persistReportFile, persistReportText } from '@/lib/storage';
-import { createReport, findLatestCheckForReport, listReports } from '@/lib/repository';
+import { persistReportFile, persistReportText, removeReportFile, removeReportText } from '@/lib/storage';
+import { createReport, deleteAllReports, findLatestCheckForReport, listReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
@@ -126,4 +126,13 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ items: results }, { status: 202 });
+}
+
+export async function DELETE() {
+  const removed = deleteAllReports();
+  removed.forEach((report) => {
+    removeReportFile(report.stored_name);
+    removeReportText(report.text_index);
+  });
+  return NextResponse.json({ deleted: removed.length });
 }
