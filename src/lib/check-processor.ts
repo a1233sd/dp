@@ -1,4 +1,4 @@
-import { diffLines } from 'diff';
+import { buildDiffSegments, buildMatchPreview } from './diff-utils';
 import { cosineSimilarity } from './text';
 import { readReportText } from './storage';
 import type { ReportRecord } from './repository';
@@ -73,13 +73,8 @@ class CheckProcessor {
           continue;
         }
         const similarity = cosineSimilarity(reportText, otherText) * 100;
-        const diff = diffLines(otherText, reportText)
-          .map((segment) => {
-            const prefix = segment.added ? '+' : segment.removed ? '-' : ' ';
-            return `${prefix} ${segment.value.trim()}`;
-          })
-          .slice(0, 10)
-          .join('\n');
+        const segments = buildDiffSegments(otherText, reportText);
+        const diff = buildMatchPreview(segments);
         results.push({
           reportId: other.id,
           reportName: other.original_name,

@@ -1,10 +1,6 @@
 'use client';
 
-export interface DiffSegment {
-  added: boolean;
-  removed: boolean;
-  value: string;
-}
+import type { DiffSegment } from '@/lib/diff-utils';
 
 function renderSegmentContent(value: string) {
   const parts = value.split(/(\n)/);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { diffLines } from 'diff';
 import { getReportById } from '@/lib/repository';
 import { readReportText } from '@/lib/storage';
+import { buildDiffSegments } from '@/lib/diff-utils';
 
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
@@ -19,11 +19,7 @@ export async function GET(req: NextRequest) {
   const sourceText = safeReadReportText(source.text_index);
   const targetText = safeReadReportText(target.text_index);
 
-  const diff = diffLines(sourceText, targetText).map((part) => ({
-    added: !!part.added,
-    removed: !!part.removed,
-    value: part.value,
-  }));
+  const diff = buildDiffSegments(sourceText, targetText);
 
   return NextResponse.json({
     source: {

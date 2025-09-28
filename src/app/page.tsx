@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CloudMatchViewer, DiffSegment } from './components/CloudMatchViewer';
+import { CloudMatchViewer } from './components/CloudMatchViewer';
+import type { DiffSegment } from '@/lib/diff-utils';
 
 interface ReportListItem {
   id: string;
