@@ -20,21 +20,29 @@ vi.mock('@/lib/pdf-parser', () => ({
   parsePdf: vi.fn(),
 }));
 
+vi.mock('@/lib/cloud-scanner', () => ({
+  syncCloudStorage: vi.fn(),
+  CloudSyncError: class MockCloudSyncError extends Error {},
+}));
+
 import { POST } from './route';
 import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
+import { syncCloudStorage, CloudSyncError } from '@/lib/cloud-scanner';
 
 const persistReportFileMock = vi.mocked(persistReportFile);
 const createReportMock = vi.mocked(createReport);
 const queueCheckMock = vi.mocked(queueCheck);
 const pdfParseMock = vi.mocked(parsePdf);
 const persistReportTextMock = vi.mocked(persistReportText);
+const syncCloudStorageMock = vi.mocked(syncCloudStorage);
 
 describe('POST /api/reports', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    syncCloudStorageMock.mockResolvedValue({ imported: 0, activated: 0, skipped: 0, errors: [] });
   });
 
   it('saves uploaded report and queues a check', async () => {
@@ -108,6 +116,7 @@ describe('POST /api/reports', () => {
     });
 
     expect(queueCheckMock).toHaveBeenCalledWith(storedReport.id);
+    expect(syncCloudStorageMock).toHaveBeenCalledWith('https://example.com/report');
   });
 
   it('supports uploading multiple PDF files at once', async () => {
@@ -269,5 +278,49 @@ describe('POST /api/reports', () => {
     expect(persistReportTextMock).not.toHaveBeenCalled();
     expect(createReportMock).not.toHaveBeenCalled();
     expect(queueCheckMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when cloud sync reports a validation issue', async () => {
+    const file = new File(['%PDF-1.7 test content'], 'report.pdf', {
+      type: 'application/pdf',
+    });
+    const formData = new FormData();
+    formData.set('file', file);
+    formData.set('cloudLink', 'https://example.com/report');
+
+    syncCloudStorageMock.mockRejectedValueOnce(new CloudSyncError('Cloud validation error'));
+
+    const request = {
+      formData: vi.fn().mockResolvedValue(formData),
+    } as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ message: 'Cloud validation error' });
+    expect(persistReportFileMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 502 when cloud sync fails unexpectedly', async () => {
+    const file = new File(['%PDF-1.7 test content'], 'report.pdf', {
+      type: 'application/pdf',
+    });
+    const formData = new FormData();
+    formData.set('file', file);
+    formData.set('cloudLink', 'https://example.com/report');
+
+    syncCloudStorageMock.mockRejectedValueOnce(new Error('network down'));
+
+    const request = {
+      formData: vi.fn().mockResolvedValue(formData),
+    } as unknown as NextRequest;
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Не удалось синхронизировать облачные файлы для сравнения',
+    });
+    expect(persistReportFileMock).not.toHaveBeenCalled();
   });
 });

@@ -168,3 +168,14 @@ export function findLatestCheckForReport(reportId: string): CheckRecord | undefi
     .prepare(`SELECT * FROM checks WHERE report_id = ? ORDER BY datetime(created_at) DESC LIMIT 1`)
     .get(reportId) as CheckRecord | undefined;
 }
+
+export function findReportByCloudLinkAndName(
+  cloudLink: string,
+  originalName: string
+): ReportRecord | undefined {
+  return db
+    .prepare(
+      `SELECT * FROM reports WHERE cloud_link = ? AND original_name = ? ORDER BY datetime(created_at) DESC LIMIT 1`
+    )
+    .get(cloudLink, originalName) as ReportRecord | undefined;
+}

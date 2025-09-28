@@ -1,0 +1,197 @@
+import { parsePdf } from './pdf-parser';
+import { persistReportFile, persistReportText } from './storage';
+import {
+  createReport,
+  findReportByCloudLinkAndName,
+  updateReport,
+} from './repository';
+
+export class CloudSyncError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CloudSyncError';
+  }
+}
+
+interface CloudResource {
+  name: string;
+  url?: string;
+  arrayBuffer?: ArrayBuffer;
+}
+
+interface SyncResult {
+  imported: number;
+  activated: number;
+  skipped: number;
+  errors: string[];
+}
+
+const PDF_EXTENSION_REGEX = /\.pdf(?:$|[?#])/i;
+
+function guessFileName(sourceUrl: string): string {
+  try {
+    const parsed = new URL(sourceUrl);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const last = segments.at(-1);
+    if (last) {
+      return decodeURIComponent(last) || 'cloud-file.pdf';
+    }
+  } catch {
+    // ignore
+  }
+  return 'cloud-file.pdf';
+}
+
+function normaliseUrl(base: string, value: string): string {
+  return new URL(value, base).toString();
+}
+
+async function parseListingResponse(cloudLink: string): Promise<CloudResource[]> {
+  const response = await fetch(cloudLink);
+  if (!response.ok) {
+    throw new CloudSyncError('Не удалось получить список файлов из облака');
+  }
+
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  const finalUrl = response.url || cloudLink;
+
+  if (contentType.includes('application/pdf') || PDF_EXTENSION_REGEX.test(finalUrl)) {
+    const arrayBuffer = await response.arrayBuffer();
+    return [
+      {
+        name: guessFileName(finalUrl),
+        arrayBuffer,
+      },
+    ];
+  }
+
+  if (contentType.includes('application/json') || contentType.includes('text/json')) {
+    try {
+      const payload = await response.json();
+      const items = Array.isArray(payload) ? payload : Array.isArray(payload?.files) ? payload.files : [];
+      const resources: CloudResource[] = [];
+      for (const item of items) {
+        if (typeof item === 'string') {
+          const url = normaliseUrl(finalUrl, item);
+          resources.push({ name: guessFileName(url), url });
+        } else if (item && typeof item === 'object') {
+          const rawUrl = typeof item.url === 'string' ? item.url : typeof item.href === 'string' ? item.href : null;
+          if (!rawUrl) {
+            continue;
+          }
+          const url = normaliseUrl(finalUrl, rawUrl);
+          const name = typeof item.name === 'string' && item.name.trim().length ? item.name.trim() : guessFileName(url);
+          resources.push({ name, url });
+        }
+      }
+      if (!resources.length) {
+        throw new CloudSyncError('В облаке не найдено PDF файлов для синхронизации');
+      }
+      return resources;
+    } catch (error) {
+      if (error instanceof CloudSyncError) {
+        throw error;
+      }
+      throw new CloudSyncError('Облако вернуло некорректный JSON со списком файлов');
+    }
+  }
+
+  const body = await response.text();
+  const linkRegex = /href=["']([^"']+)["']/gi;
+  const resources = new Map<string, CloudResource>();
+  let match: RegExpExecArray | null;
+  while ((match = linkRegex.exec(body)) !== null) {
+    const href = match[1];
+    if (!PDF_EXTENSION_REGEX.test(href)) {
+      continue;
+    }
+    try {
+      const url = normaliseUrl(finalUrl, href);
+      resources.set(url, { name: guessFileName(url), url });
+    } catch {
+      // ignore invalid URLs
+    }
+  }
+
+  if (!resources.size) {
+    throw new CloudSyncError('В облаке не найдены PDF файлы. Проверьте ссылку или предоставьте прямой список.');
+  }
+
+  return Array.from(resources.values());
+}
+
+async function downloadResource(resource: CloudResource): Promise<ArrayBuffer> {
+  if (resource.arrayBuffer) {
+    return resource.arrayBuffer;
+  }
+  if (!resource.url) {
+    throw new CloudSyncError('Ссылка на файл из облака отсутствует');
+  }
+  const response = await fetch(resource.url);
+  if (!response.ok) {
+    throw new CloudSyncError(`Не удалось скачать файл из облака: ${resource.name}`);
+  }
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('application/pdf') && !PDF_EXTENSION_REGEX.test(resource.url)) {
+    throw new CloudSyncError(`Файл «${resource.name}» не является PDF`);
+  }
+  return response.arrayBuffer();
+}
+
+export async function syncCloudStorage(cloudLink: string): Promise<SyncResult> {
+  const resources = await parseListingResponse(cloudLink);
+  const errors: string[] = [];
+  let imported = 0;
+  let activated = 0;
+  let skipped = 0;
+
+  for (const resource of resources) {
+    try {
+      const existing = findReportByCloudLinkAndName(cloudLink, resource.name);
+      if (existing) {
+        skipped += 1;
+        if (!existing.added_to_cloud) {
+          updateReport(existing.id, { added_to_cloud: true });
+          activated += 1;
+        }
+        continue;
+      }
+
+      const arrayBuffer = await downloadResource(resource);
+      const uint8 = new Uint8Array(arrayBuffer);
+      const pdfData = await parsePdf(uint8);
+
+      if (!pdfData.text?.trim()) {
+        errors.push(`Не удалось извлечь текст из «${resource.name}»`);
+        continue;
+      }
+
+      const buffer = Buffer.from(uint8);
+      const stored = persistReportFile(buffer, resource.name);
+      const textIndex = persistReportText(stored.id, pdfData.text);
+      createReport({
+        id: stored.id,
+        original_name: resource.name,
+        stored_name: stored.storedName,
+        text_index: textIndex.index,
+        cloud_link: cloudLink,
+        added_to_cloud: true,
+      });
+      imported += 1;
+    } catch (error) {
+      if (error instanceof CloudSyncError) {
+        errors.push(error.message);
+      } else if (error instanceof Error) {
+        errors.push(error.message);
+      } else {
+        errors.push('Неизвестная ошибка синхронизации облака');
+      }
+    }
+  }
+
+  if (!imported && !activated && !skipped) {
+    throw new CloudSyncError('В облачном хранилище не удалось найти подходящие PDF файлы');
+  }
+
+  return { imported, activated, skipped, errors };
+}

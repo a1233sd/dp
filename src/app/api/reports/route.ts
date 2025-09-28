@@ -3,6 +3,7 @@ import { persistReportFile, persistReportText } from '@/lib/storage';
 import { createReport, findLatestCheckForReport, listReports } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
+import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
 
 export async function GET() {
   const reports = listReports().map((report) => {
@@ -55,6 +56,19 @@ export async function POST(req: NextRequest) {
 
   if (!fileList.length) {
     return NextResponse.json({ message: 'Файлы не найдены в запросе' }, { status: 400 });
+  }
+
+  try {
+    await syncCloudStorage(cloudLink);
+  } catch (error) {
+    if (error instanceof CloudSyncError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    console.error('Cloud synchronization failed', error);
+    return NextResponse.json(
+      { message: 'Не удалось синхронизировать облачные файлы для сравнения' },
+      { status: 502 }
+    );
   }
 
   const results: { reportId: string; checkId: string; status: string }[] = [];
