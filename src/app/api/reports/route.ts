@@ -70,9 +70,20 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
     const buffer = Buffer.from(uint8Array);
-    const pdfData = await parsePdf(uint8Array);
 
-    if (!pdfData.text.trim()) {
+    let pdfData: Awaited<ReturnType<typeof parsePdf>>;
+    try {
+      pdfData = await parsePdf(uint8Array);
+    } catch {
+      return NextResponse.json(
+        {
+          message: `Не удалось обработать PDF «${file.name}». Проверьте, что файл не поврежден и содержит текст.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!pdfData.text?.trim()) {
       return NextResponse.json(
         { message: `Не удалось извлечь текст из PDF «${file.name}»` },
         { status: 400 }
