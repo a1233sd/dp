@@ -17,13 +17,12 @@ function renderSegmentContent(value: string) {
 }
 
 export function CloudMatchViewer({ segments }: { segments: DiffSegment[] }) {
-  const visibleSegments = segments.filter((segment) => !segment.removed);
+  const visibleSegments = segments.filter((segment) => !segment.added);
   const hasContent = visibleSegments.some((segment) => segment.value.trim().length > 0);
-  const highlightedFragments = visibleSegments.filter((segment) => !segment.added);
-  const highlightCount = highlightedFragments.reduce(
-    (acc, segment) => (segment.value.trim().length > 0 ? acc + 1 : acc),
-    0
+  const highlightedFragments = visibleSegments.filter(
+    (segment) => !segment.removed && segment.value.trim().length > 0
   );
+  const highlightCount = highlightedFragments.length;
   const hasHighlights = highlightCount > 0;
 
   if (!visibleSegments.length || !hasContent) {
@@ -40,7 +39,7 @@ export function CloudMatchViewer({ segments }: { segments: DiffSegment[] }) {
       )}
       <div className="match-viewer" role="region" aria-label="Текст файла с подчеркнутыми совпадениями">
         {visibleSegments.map((segment, index) => {
-          const isHighlight = !segment.added;
+          const isHighlight = !segment.removed;
           const className = [
             'match-viewer__segment',
             isHighlight ? 'match-viewer__segment--highlight' : 'match-viewer__segment--context',
