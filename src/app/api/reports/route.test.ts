@@ -28,9 +28,9 @@ vi.mock('@/lib/cloud-scanner', () => ({
   CloudSyncError: class MockCloudSyncError extends Error {},
 }));
 
-import { DELETE, POST } from './route';
+import { DELETE, GET, POST } from './route';
 import { persistReportFile, persistReportText, removeReportFile, removeReportText } from '@/lib/storage';
-import { createReport, deleteAllReports } from '@/lib/repository';
+import { createReport, deleteAllReports, listReports, findLatestCheckForReport } from '@/lib/repository';
 import { queueCheck } from '@/lib/check-processor';
 import { parsePdf } from '@/lib/pdf-parser';
 import { syncCloudStorage, CloudSyncError } from '@/lib/cloud-scanner';
@@ -38,6 +38,8 @@ import { config } from '@/lib/config';
 
 const persistReportFileMock = vi.mocked(persistReportFile);
 const createReportMock = vi.mocked(createReport);
+const listReportsMock = vi.mocked(listReports);
+const findLatestCheckForReportMock = vi.mocked(findLatestCheckForReport);
 const queueCheckMock = vi.mocked(queueCheck);
 const pdfParseMock = vi.mocked(parsePdf);
 const persistReportTextMock = vi.mocked(persistReportText);
@@ -45,6 +47,83 @@ const syncCloudStorageMock = vi.mocked(syncCloudStorage);
 const deleteAllReportsMock = vi.mocked(deleteAllReports);
 const removeReportFileMock = vi.mocked(removeReportFile);
 const removeReportTextMock = vi.mocked(removeReportText);
+
+describe('GET /api/reports', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    syncCloudStorageMock.mockResolvedValue({ imported: 0, activated: 0, skipped: 0, errors: [] });
+    listReportsMock.mockReturnValue([]);
+    findLatestCheckForReportMock.mockReturnValue(undefined);
+  });
+
+  it('synchronizes cloud storage before listing reports', async () => {
+    listReportsMock.mockReturnValue([
+      {
+        id: 'report-1',
+        original_name: 'report.pdf',
+        stored_name: 'report-1.pdf',
+        text_index: 'report-1.txt',
+        cloud_link: 'https://cloud.example/reports',
+        added_to_cloud: 1,
+        created_at: '2024-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    findLatestCheckForReportMock.mockReturnValue({
+      id: 'check-1',
+      report_id: 'report-1',
+      status: 'completed',
+      similarity: 87.5,
+      matches: '[]',
+      created_at: '2024-01-01T00:05:00.000Z',
+      completed_at: '2024-01-01T00:06:00.000Z',
+    });
+
+    const response = await GET();
+
+    expect(syncCloudStorageMock).toHaveBeenCalledWith(config.cloudArchiveLink);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      reports: [
+        {
+          id: 'report-1',
+          originalName: 'report.pdf',
+          createdAt: '2024-01-01T00:00:00.000Z',
+          cloudLink: 'https://cloud.example/reports',
+          addedToCloud: true,
+          latestCheck: {
+            id: 'check-1',
+            status: 'completed',
+            similarity: 87.5,
+            createdAt: '2024-01-01T00:05:00.000Z',
+          },
+        },
+      ],
+    });
+  });
+
+  it('returns error when cloud synchronization fails with validation issue', async () => {
+    syncCloudStorageMock.mockRejectedValueOnce(new CloudSyncError('Cloud validation error'));
+
+    const response = await GET();
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ message: 'Cloud validation error' });
+  });
+
+  it('returns generic error when cloud synchronization fails unexpectedly', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    syncCloudStorageMock.mockRejectedValueOnce(new Error('network down'));
+
+    const response = await GET();
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: 'Не удалось синхронизировать облачные файлы для сравнения',
+    });
+    consoleSpy.mockRestore();
+  });
+});
 
 describe('POST /api/reports', () => {
   beforeEach(() => {
@@ -264,6 +343,7 @@ describe('POST /api/reports', () => {
     const formData = new FormData();
     formData.set('file', file);
 
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     syncCloudStorageMock.mockRejectedValueOnce(new Error('network down'));
 
     const request = {
@@ -277,6 +357,7 @@ describe('POST /api/reports', () => {
       message: 'Не удалось синхронизировать облачные файлы для сравнения',
     });
     expect(persistReportFileMock).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });
 
