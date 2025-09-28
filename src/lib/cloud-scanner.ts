@@ -205,7 +205,7 @@ async function fetchWithBrowserHeaders(input: RequestInfo | URL, init?: RequestI
 function decodePotentiallyEscapedUrl(value: string): string {
   return value
     .replace(/\\\//g, '/')
-    .replace(/\u002[fF]/g, '/')
+    .replace(/\\u002[fF]/g, '/')
     .replace(/&amp;/g, '&')
     .trim();
 }
