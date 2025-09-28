@@ -92,7 +92,7 @@ class CheckProcessor {
 
     const indexedReports = getIndexedMatches(reportId)
       .map((id) => getReportById(id))
-      .filter((item): item is ReportRecord => Boolean(item) && item.id !== reportId);
+      .filter((item): item is ReportRecord => item !== undefined && item.id !== reportId);
 
     const matchesFromIndex = evaluateCandidates(indexedReports);
 
