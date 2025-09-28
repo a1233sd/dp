@@ -7,6 +7,19 @@ import { CloudSyncError, syncCloudStorage } from '@/lib/cloud-scanner';
 import { config } from '@/lib/config';
 
 export async function GET() {
+  try {
+    await syncCloudStorage(config.cloudArchiveLink);
+  } catch (error) {
+    if (error instanceof CloudSyncError) {
+      return NextResponse.json({ message: error.message }, { status: 400 });
+    }
+    console.error('Cloud synchronization failed', error);
+    return NextResponse.json(
+      { message: 'Не удалось синхронизировать облачные файлы для сравнения' },
+      { status: 502 }
+    );
+  }
+
   const reports = listReports().map((report) => {
     const latestCheck = findLatestCheckForReport(report.id);
     return {
