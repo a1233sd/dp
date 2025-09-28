@@ -15,6 +15,7 @@
     "migrate": "tsx scripts/migrate-db.ts"
   },
   "dependencies": {
+    "@types/string-similarity": "^4.0.2",
     "better-sqlite3": "^9.0.0",
     "diff-match-patch": "^1.0.5",
     "next": "14.1.0",
@@ -22,6 +23,7 @@
     "pdfjs-dist": "^4.6.82",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "string-similarity": "^4.0.4",
     "zod": "^3.22.2"
   },
   "devDependencies": {
