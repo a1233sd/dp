@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>ProofText</title>
+  <link href="https://fonts.googleapis.com/css2?family=Island+Moments&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #fff;
+      font-family: 'Island Moments', cursive;
+      height: 100%;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    /* ====== СТРУНЫ ====== */
+    .grid-bg {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw; height: 100vh;
+      z-index: 0;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+      user-select: none;
+    }
+    .grid-inner {
+      width: 1340px;
+      height: 100vh;
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+      pointer-events: none;
+    }
+    .grid-col {
+      pointer-events: auto;
+      background: linear-gradient(180deg, rgba(250,210,255,0.33) 0%, rgba(240,209,255,0.24) 100%);
+      height: 100vh;
+      width: 80px;
+      border-radius: 14px;
+      box-shadow: 0 6px 24px 0 rgba(163,120,206,0.04);
+      margin: 0 8px;
+      border: 1.5px solid rgba(222,180,241,0.11);
+      transition:
+        box-shadow 0.22s,
+        background 0.13s,
+        transform 0.38s cubic-bezier(.77,0,.34,1.3);
+      will-change: transform;
+      opacity: 1;
+      cursor: pointer;
+      z-index: 1;
+    }
+    .grid-col:hover {
+      animation: vibrate-string-x 0.53s cubic-bezier(.72,-0.04,.31,1.37);
+      background: linear-gradient(180deg, #fae0ff 0%, #e8e4ff 100%);
+      box-shadow: 0 0 40px 6px rgba(160,120,255,0.12), 0 13px 64px -29px rgba(184,120,255,0.13);
+      z-index: 2;
+    }
+    @keyframes vibrate-string-x {
+      0%   { transform: translateX(0px) scaleX(1); }
+      15%  { transform: translateX(-13px) scaleX(1.035) skewX(-3deg);}
+      28%  { transform: translateX(10px) scaleX(0.97) skewX(2deg);}
+      36%  { transform: translateX(-7px) scaleX(1.02) skewX(-1deg);}
+      44%  { transform: translateX(5px) scaleX(0.99);}
+      52%  { transform: translateX(-3px) scaleX(1.01);}
+      64%  { transform: translateX(2px) scaleX(1);}
+      100% { transform: translateX(0px) scaleX(1);}
+    }
+
+    /* ====== ХЕДЕР ====== */
+    .header-bar {
+      width: 100vw;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-sizing: border-box;
+      padding: 18px 40px 0 40px;
+      background: transparent;
+      position: relative;
+      z-index: 2;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo {
+      width: 44px; height: 44px;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 0;
+    }
+    .brand {
+      font-size: 40px;
+      margin-left: 15px;
+      vertical-align: middle;
+    }
+    .btn-purple {
+      background: #7000FF;
+      color: #fff;
+      border-radius: 20px;
+      border: none;
+      padding: 12px 26px;
+      margin-left: 0;
+      font-family: inherit;
+      font-size: 18px;
+      transition: background 0.18s;
+      cursor: pointer;
+    }
+    .btn-purple:hover {
+      background: #8C21FF;
+    }
+    @media (max-width: 900px) {
+      .header-bar {
+        padding: 10px 8px 0 8px;
+      }
+      .header-right button {
+        font-size: 15px;
+        padding: 9px 9px;
+      }
+    }
+
+    /* ====== КОНТЕНТ ====== */
+    .content {
+      position: relative;
+      z-index: 1;
+      background: none !important;
+    }
+
+    /* ====== ГЛАВНЫЙ ЛЕЙБЛ ====== */
+    .center-area {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      width: 100%;
+      min-height: 40vh;
+margin-top: 310px;
+    }
+    .site-info-label {
+      background: #FFF8FF;
+      border: 2.2px solid #ddb7f1;
+      border-radius: 22px;
+      box-shadow: 0 6px 12px #0000000a, 0 1px 18px #ecc8fa18;
+      font-size: 1.32rem;
+      color: #8f53ad;
+      font-family: inherit;
+      font-weight: 400;
+      max-width: 700px;
+      width: 95%;
+      padding: 32px 35px;
+      text-align: center;
+      line-height: 1.5;
+      margin-top: 0;
+    }
+    @media (max-width: 800px) {
+      .center-area {
+        margin-top: 180px;
+        min-height: 20vh;
+      }
+      .site-info-label {
+        padding: 20px 6px;
+        font-size: 1.07rem;
+        margin-top: 0;
+        max-width: 99vw;
+      }
+    }
+
+    /* ====== РОБОТ ====== */
+    .robot-message-left {
+      position: absolute;
+      top: 110px;
+      left: 18px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      z-index: 200;
+      opacity: 0;
+      animation: heroFadeIn 1.2s cubic-bezier(.65,1.15,.5,1.1) 0.3s forwards;
+    }
+    @keyframes heroFadeIn {
+      from { opacity:0; transform: translateY(40px) scale(.98);}
+      to   { opacity:1; transform: translateY(0) scale(1);}
+    }
+    .robot-message-img .svg-robot {
+      width: 120px;
+      height: auto;
+      display: block;
+      border-radius: 20px;
+    }
+    .robot-message-bubble {
+      margin-left: 32px;
+      background: #FFFBEA;
+      border: 2.5px solid #e6bfff;
+      color: #a140a1;
+      font-size: 38px;
+      font-style: italic;
+      border-radius: 32px 28px 28px 12px;
+      padding: 34px 56px 28px 43px;
+      box-shadow: 0 8px 38px #0001;
+      font-family: inherit;
+      min-width: 200px;
+      min-height: 80px;
+      display: flex;
+      align-items: center;
+      animation: robotTalk 1.3s infinite alternate;
+      position: relative;
+    }
+    @media (max-width: 800px) {
+      .robot-message-left {
+        left: 3vw; top: 98px;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .robot-message-bubble {
+        font-size: 21px;
+        padding: 16px 28px 16px 15px;
+        min-width:110px;
+        margin-left: 0;
+        margin-top: 6px;
+      }
+      .robot-message-img .svg-robot { width: 70px; }
+    }
+    @keyframes robotTalk {
+      0% { transform: scale(1);}
+      100% { transform: scale(1.03);}
+    }
+    .close-cross {
+      position: absolute;
+      top: 13px;
+      right: 19px;
+      font-size: 30px;
+      color: #d88adf;
+      cursor: pointer;
+      transition: color 0.14s;
+      z-index: 2;
+      line-height: 1;
+      background: none;
+      border: none;
+      outline: none;
+      font-family: Arial, sans-serif;
+      padding: 0;
+    }
+    .close-cross:hover {
+      color: #e82d55;
+    }
+    /* ====== ЧЕРНЫЙ ПОДВАЛ ====== */
+    footer {
+      width: 100vw;
+      background: #242323;
+      color: #fff;
+      text-align: center;
+      padding: 20px 0 12px 0;
+      position: fixed;
+      left: 0;
+      bottom: 0;
+      font-size: 19px;
+      font-family: Arial, sans-serif;
+      letter-spacing: 0.03em;
+      z-index: 2;
+    }
+    .heart { color: #ff2050; }
+    @media (max-width:1240px) {
+      .grid-inner {width: 100vw;}
+    }
+  </style>
+</head>
+<body>
+  <!-- ЯВНАЯ СЕТКА (ПОЛОСЫ) -->
+  <div class="grid-bg">
+    <div class="grid-inner">
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+      <div class="grid-col"></div>
+    </div>
+  </div>
+
+  <div class="content">
+    <header class="header-bar">
+      <div class="header-left">
+        <span class="logo">
+          <!-- SVG logo ... -->
+          <svg width="44" height="44" viewBox="0 0 44 44
+" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="22" cy="22" r="20" fill="#F7F6FF" stroke="#D2C5F7" stroke-width="2"/>
+            <ellipse cx="22" cy="18" rx="11" ry="9" fill="#fff" stroke="#B2A8E1" stroke-width="2"/>
+            <ellipse cx="22" cy="18" rx="6" ry="5" fill="#3D4BA2"/>
+            <ellipse cx="19.7" cy="18.3" rx="1.1" ry="1.3" fill="#fff"/>
+            <ellipse cx="24.3" cy="18.3" rx="1.1" ry="1.3" fill="#fff"/>
+            <ellipse cx="22" cy="29" rx="8" ry="5" fill="#F3F5F8" stroke="#B2A8E1"/>
+            <ellipse cx="9" cy="12" rx="2" ry="2" fill="#E1DEF9" stroke="#B2A8E1"/>
+            <ellipse cx="35" cy="12" rx="2" ry="2" fill="#E1DEF9" stroke="#B2A8E1"/>
+            <rect x="9" y="13" width="5" height="2" rx="1" fill="#C5C3E6" transform="rotate(-22 9 13)"/>
+            <rect x="28" y="9" width="5" height="2" rx="1" fill="#C5C3E6" transform="rotate(22 33 10)"/>
+            <ellipse cx="10" cy="33" rx="2" ry="2.5" fill="#ECE9F7" stroke="#B2A8E1"/>
+            <ellipse cx="34" cy="33" rx="2" ry="2.5" fill="#ECE9F7" stroke="#B2A8E1"/>
+          </svg>
+        </span>
+        <span class="brand">ProofText</span>
+      </div>
+<div class="header-right">
+  <a href="/articles/register-report/" class="btn-purple">Зарегистрировать доклад</a>
+  <a href="/articles/report/" class="btn-purple">Получить справку</a>
+  <a href="/users/auth/" class="btn-purple">Личный кабинет</a>
+</div>
+    </header>
+
+    <!-- Робот под логотипом, слева -->
+    <div class="robot-message-left" id="robotMessage">
+      <div class="robot-message-img">
+        <!-- SVG-РОБОТ -->
+        <svg class="svg-robot" width="120" height="140" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <filter id="shadow" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+            <feDropShadow dx="0" dy="7" stdDeviation="6" flood-color="#a3a3a340"/>
+          </filter>
+          <ellipse cx="60" cy="100" rx="30" ry="35" fill="#eee" stroke="#d8d8d8" stroke-width="4" filter="url(#shadow)"/>
+          <ellipse cx="60" cy="43" rx="38" ry="37" fill="white" stroke="#bdbdbd" stroke-width="4"/>
+          <ellipse cx="60" cy="46" rx="22" ry="16" fill="#3d4ba2" stroke="#223070" stroke-width="4"/>
+          <ellipse cx="51" cy="40" rx="6" ry="4" fill="#8dcefa"/>
+          <ellipse cx="68" cy="50" rx="4.3" ry="2.2" fill="#dfffff" opacity="0.8"/>
+          <ellipse cx="54" cy="46" rx="4" ry="5.5" fill="#fff"/>
+          <ellipse cx="66" cy="46" rx="4" ry="5.5" fill="#fff"/>
+          <circle cx="20" cy="50" r="9" fill="#d7dadd" stroke="#9ea1a5" stroke-width="2"/>
+          <circle cx="100" cy="50" r="9" fill="#d7dadd" stroke="#9ea1a5" stroke-width="2"/>
+          <rect x="51" y="74" width="18" height="21" rx="8" fill="#979fa7"/>
+          <rect x="10" y="78" width="13" height="30" rx="8" transform="rotate(-23 18 80)" fill="#dbe1e6"/>
+          <rect x="97" y="78" width="13" height="30" rx="8" transform="rotate(23 105 80)" fill="#dbe1e6"/>
+          <ellipse cx="17" cy="109" rx="7" ry="6" fill="#b7b9be"/>
+          <ellipse cx="103" cy="109" rx="7" ry="6" fill="#b7b9be"/>
+          <rect x="47" y="123" width="7" height="15" rx="3.5" fill="#b7b9be"/>
+          <rect x="66" y="123" width="7" height="15" rx="3.5" fill="#b7b9be"/>
+          <ellipse cx="50.5" cy="136" rx="8" ry="4" fill="#616b76"/>
+          <ellipse cx="69.5" cy="136" rx="8" ry="4" fill="#616b76"/>
+        </svg>
+      </div>
+      <div class="robot-message-bubble">
+        <button class="close-cross" onclick="document.getElementById('robotMessage').style.display='none'">&times;</button>
+        Не<br>списывай
+      </div>
+    </div>
+
+    <main>
+      <div class="center-area">
+        <div class="site-info-label">
+          ProofText — сервис для проверки уникальности и поиска заимствований в текстах методом косинусного сходства. Загрузите статью или доклад, и наш алгоритм сравнит её с другими текстами, чтобы выявить возможные случаи плагиата.
+</div>
+      </div>
+    </main>
+  </div>
+  <footer>
+    2025, ProofText. Сделано с <span class="heart">❤️</span>
+  </footer>
+</body>
+</html>

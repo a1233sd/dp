@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block content %}
+
+<style>
+  /* ====== СТРУНЫ ====== */
+  .grid-bg {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100vw; height: 100vh;
+    z-index: 0;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    user-select: none;
+  }
+  .grid-inner {
+    width: 1340px;
+    height: 100vh;
+    display: flex;
+    justify-content: space-between;
+    align-items: stretch;
+    pointer-events: none;
+  }
+  .grid-col {
+    pointer-events: auto;
+    background: linear-gradient(180deg, rgba(250,210,255,0.33) 0%, rgba(240,209,255,0.24) 100%);
+    height: 100vh;
+    width: 80px;
+    border-radius: 14px;
+    box-shadow: 0 6px 24px 0 rgba(163,120,206,0.04);
+    margin: 0 8px;
+    border: 1.5px solid rgba(222,180,241,0.11);
+    transition:
+      box-shadow 0.22s,
+      background 0.13s,
+      transform 0.38s cubic-bezier(.77,0,.34,1.3);
+    will-change: transform;
+    opacity: 1;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .grid-col:hover {
+    animation: vibrate-string-x 0.53s cubic-bezier(.72,-0.04,.31,1.37);
+    background: linear-gradient(180deg, #fae0ff 0%, #e8e4ff 100%);
+    box-shadow: 0 0 40px 6px rgba(160,120,255,0.12), 0 13px 64px -29px rgba(184,120,255,0.13);
+    z-index: 2;
+  }
+  @keyframes vibrate-string-x {
+    0%   { transform: translateX(0px) scaleX(1); }
+    15%  { transform: translateX(-13px) scaleX(1.035) skewX(-3deg);}
+    28%  { transform: translateX(10px) scaleX(0.97) skewX(2deg);}
+    36%  { transform: translateX(-7px) scaleX(1.02) skewX(-1deg);}
+    44%  { transform: translateX(5px) scaleX(0.99);}
+    52%  { transform: translateX(-3px) scaleX(1.01);}
+    64%  { transform: translateX(2px) scaleX(1);}
+    100% { transform: translateX(0px) scaleX(1);}
+  }
+
+  /* Карточки отчётов */
+  .card {
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 20px;
+    border: none;
+  }
+  .card-header {
+    font-weight: 600;
+    font-size: 1.25rem;
+    color: white;
+    padding: 16px 20px;
+    /* Цвета будут задаваться через JS */
+  }
+  .card-body {
+    padding: 20px;
+    font-family: 'Island Moments', cursive;
+    font-size: 1.1rem;
+    color: #333;
+  }
+  .card-footer {
+    padding: 12px 20px;
+    background: #f7f7f7;
+    text-align: right;
+  }
+  .btn-submit {
+    background-color: #FF69B4;
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background-color 0.3s ease;
+    font-family: 'Island Moments', cursive;
+  }
+  .btn-submit:hover {
+    background-color: #e03e8f;
+    text-decoration: none;
+    color: white;
+  }
+</style>
+
+<!-- Розовые полоски с дребезжанием -->
+<div class="grid-bg" aria-hidden="true">
+  <div class="grid-inner">
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+    <div class="grid-col"></div>
+  </div>
+</div>
+
+<div class="container py-5" style="position: relative; z-index: 10;">
+  <h2 class="text-center fw-bold mb-5" style="font-family: 'Island Moments', cursive;">
+    Справка по проверке докладов
+  </h2>
+
+  {% if reports %}
+  <div class="row">
+    {% for report in reports %}
+      <div class="col-md-4">
+        <div class="card report-card">
+          <div class="card-header">
+            {{ report.title }}
+          </div>
+          <div class="card-body">
+            <p><strong>Автор:</strong> {{ report.author }}</p>
+            <p><strong>Дата:</strong> {{ report.created_at|date:"d.m.Y H:i" }}</p>
+            <p><strong>Уровень оригинальности:</strong>
+  {% if report.originality_percent is not None %}
+    {{ report.originality_percent }}%
+  {% else %}
+    <em>Не проверено</em>
+  {% endif %}
+</p>
+
+<p><strong>Индекс ИИ-генерации:</strong>
+  {% if report.ai_generated_percent is not None %}
+    {{ report.ai_generated_percent }}%
+  {% else %}
+    <em>Не проверено</em>
+  {% endif %}
+</p>
+
+          </div>
+          <div class="card-footer">
+<a href="{% url 'analyze_report' report.id %}" class="btn-submit">Получить справку</a>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+    <p class="text-center fs-4" style="font-family: 'Island Moments', cursive; color: #8f53ad;">
+      У вас пока нет зарегистрированных докладов.
+    </p>
+  {% endif %}
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const colors = [
+      '#FFC107', // Янтарный (желтый)
+      '#2196F3', // Синий
+      '#8B0000', // Тёмно-красный
+      '#00BCD4', // Циановый
+      '#FF00FF', // Магента
+      '#FF69B4', // Ярко-розовый
+      '#4B0082', // Индиго
+      '#00FF7F', // Весенний зелёный
+      '#FFA500', // Оранжевый
+      '#DA70D6'  // Орхидея
+    ];
+    const headers = document.querySelectorAll('.report-card .card-header');
+    headers.forEach(header => {
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      header.style.backgroundColor = randomColor;
+    });
+  });
+</script>
+
+{% endblock %}

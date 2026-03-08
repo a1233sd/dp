@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Личный кабинет{% endblock %}
+
+{% block content %}
+<style>
+  .profile-wrapper {
+    display: flex;
+    gap: 40px;
+    padding: 60px;
+    color: #222;
+    font-family: Arial, sans-serif;
+    position: relative;
+    z-index: 10;
+  }
+
+  .profile-sidebar,
+  .report-list {
+    flex: 1;
+    background: white;
+    padding: 30px;
+    border-radius: 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    position: relative;
+    z-index: 10;
+  }
+
+  .profile-sidebar h2 {
+    font-size: 22px;
+    margin-bottom: 15px;
+  }
+
+  .profile-sidebar label {
+    font-weight: bold;
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 5px;
+  }
+
+  .profile-sidebar input {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 15px;
+  }
+
+  .btn-submit {
+    background-color: #7e00ff;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 20px;
+  }
+
+  .btn-submit:hover {
+    background-color: #5d00c7;
+  }
+
+  .btn-delete {
+    background-color: #ff4444;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 10px;
+    display: inline-block;
+  }
+
+  .btn-delete:hover {
+    background-color: #d03030;
+  }
+
+  .report-list {
+    max-height: 480px;
+    overflow-y: auto;
+  }
+
+  .report-list h3 {
+    margin-bottom: 20px;
+    font-size: 20px;
+  }
+
+  .report-item {
+    padding: 15px 20px;
+    margin-bottom: 15px;
+    border-radius: 12px;
+    background: #fafafa;
+    border: 1px solid #eee;
+    transition: all 0.2s;
+    cursor: pointer;
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+
+  .report-item:hover {
+    background: #f0e6ff;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  }
+
+  .report-item strong {
+    display: block;
+    font-size: 16px;
+    margin-bottom: 5px;
+  }
+
+  .report-item small {
+    color: #555;
+    font-size: 13px;
+  }
+
+  .grid-bg {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+  }
+
+  .grid-inner {
+    display: flex;
+    justify-content: center;
+    height: 100%;
+  }
+
+  .grid-col {
+    width: 80px;
+    margin: 0 8px;
+    background: linear-gradient(180deg, rgba(250,210,255,0.33) 0%, rgba(240,209,255,0.24) 100%);
+    border-radius: 14px;
+    border: 1.5px solid rgba(222,180,241,0.11);
+    transition: 0.3s;
+  }
+
+  .grid-col:hover {
+    background: linear-gradient(180deg, #fae0ff 0%, #e8e4ff 100%);
+    box-shadow: 0 0 40px 6px rgba(160,120,255,0.12), 0 13px 64px -29px rgba(184,120,255,0.13);
+  }
+</style>
+
+<!-- Задний фон -->
+<div class="grid-bg">
+  <div class="grid-inner">
+    {% for _ in " "|ljust:14 %}
+      <div class="grid-col"></div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Контент -->
+<div class="profile-wrapper">
+  <!-- Левая колонка -->
+  <div class="profile-sidebar">
+    <h2>Личный кабинет</h2>
+    <form method="post" action="{% url 'update_profile' %}">
+      {% csrf_token %}
+      <label for="id_full_name">Имя</label>
+      <input type="text" id="id_full_name" name="full_name" value="{{ request.user.full_name }}" required>
+
+      <label for="id_email">Email</label>
+      <input type="email" id="id_email" name="email" value="{{ request.user.email }}" required>
+
+      <button type="submit" class="btn-submit">Сохранить изменения</button>
+    </form>
+
+    <form method="post" action="{% url 'delete_account' %}" onsubmit="return confirm('Вы действительно хотите удалить свой аккаунт? Это действие необратимо.');">
+      {% csrf_token %}
+      <button type="submit" class="btn-delete">Удалить аккаунт</button>
+    </form>
+  </div>
+
+  <!-- Правая колонка -->
+  <div class="report-list">
+    <h3>Мои доклады</h3>
+    {% if reports %}
+      {% for report in reports %}
+        <a href="{% url 'report_info' report.id %}" class="report-item">
+          <strong>{{ report.title }}</strong>
+          <small>{{ report.created_at|date:"d.m.Y H:i" }}</small><br>
+          <small>Статус: {{ report.status|default:"на проверке" }}</small>
+        </a>
+      {% endfor %}
+    {% else %}
+      <p>У вас пока нет зарегистрированных докладов.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

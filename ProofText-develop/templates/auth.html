@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Вход и регистрация{% endblock %}
+
+{% block content %}
+<style>
+  .grid-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .auth-container {
+    position: relative;
+    z-index: 1;
+    width: 400px;
+    margin: 60px auto;
+    padding: 30px;
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 20px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(4px);
+  }
+
+  .auth-tabs {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .auth-tabs button {
+    flex: 1;
+    padding: 10px;
+    background: #f0e6ff;
+    border: none;
+    cursor: pointer;
+    font-weight: bold;
+    color: #333;
+    transition: 0.2s;
+  }
+
+  .auth-tabs button.active {
+    background: #d6bfff;
+    color: #000;
+  }
+
+  .auth-form {
+    display: none;
+  }
+
+  .auth-form.active {
+    display: block;
+  }
+
+  .auth-form input {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  .btn-submit {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 25px;
+    background: linear-gradient(90deg, #6c00ff, #b300ff);
+    color: white;
+    font-weight: bold;
+    font-size: 16px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    transition: background 0.3s ease;
+  }
+
+  .btn-submit:hover {
+    background: linear-gradient(90deg, #7a00ff, #c000ff);
+  }
+
+  .message-error {
+    color: red;
+    font-size: 13px;
+    margin-top: -8px;
+    margin-bottom: 10px;
+  }
+
+  .message-success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    padding: 12px 20px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    font-weight: 600;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(21, 87, 36, 0.3);
+    animation: fadeIn 0.5s ease forwards;
+    position: relative;
+  }
+
+  @keyframes fadeIn {
+    from {opacity: 0; transform: translateY(-10px);}
+    to {opacity: 1; transform: translateY(0);}
+  }
+</style>
+
+<div class="grid-bg">
+  <div class="grid-inner">
+    {% for _ in " "|ljust:14 %}
+      <div class="grid-col"></div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="auth-container">
+
+  {# Блок уведомлений #}
+  {% if messages %}
+    <div id="messages-container">
+      {% for message in messages %}
+        {% if 'success' in message.tags %}
+          <p class="message-success">{{ message }}</p>
+        {% elif 'error' in message.tags %}
+          <p class="message-error">{{ message }}</p>
+        {% else %}
+          <p>{{ message }}</p>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="auth-tabs">
+    <button id="loginTab" class="{% if not register_errors %}active{% endif %}" onclick="showForm('login')">Вход</button>
+    <button id="registerTab" class="{% if register_errors %}active{% endif %}" onclick="showForm('register')">Регистрация</button>
+  </div>
+
+  <form id="loginForm" class="auth-form {% if not register_errors %}active{% endif %}" method="post" action="{% url 'auth' %}">
+    {% csrf_token %}
+    <input type="email" name="email" placeholder="Email" required>
+    <input type="password" name="password" placeholder="Пароль" required>
+    <button type="submit" class="btn-submit">Войти</button>
+  </form>
+
+  <form id="registerForm" class="auth-form {% if register_errors %}active{% endif %}" method="post" action="{% url 'register_form' %}">
+    {% csrf_token %}
+    <input type="text" name="full_name" placeholder="Имя" value="{{ request.POST.full_name }}" required>
+    <input type="email" name="email" placeholder="Email" value="{{ request.POST.email }}" required>
+    <input type="password" name="password" placeholder="Пароль" required>
+    <button type="submit" class="btn-submit">Зарегистрироваться</button>
+
+    {# Ошибки валидации регистрации #}
+    {% if register_errors %}
+      {% for field, errors in register_errors.items %}
+        <p class="message-error">{{ errors.0 }}</p>
+      {% endfor %}
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showForm(type) {
+  const loginForm = document.getElementById('loginForm');
+  const registerForm = document.getElementById('registerForm');
+  const loginTab = document.getElementById('loginTab');
+  const registerTab = document.getElementById('registerTab');
+
+  loginForm.classList.remove('active');
+  registerForm.classList.remove('active');
+  loginTab.classList.remove('active');
+  registerTab.classList.remove('active');
+
+  if (type === 'login') {
+    loginForm.classList.add('active');
+    loginTab.classList.add('active');
+  } else {
+    registerForm.classList.add('active');
+    registerTab.classList.add('active');
+  }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  const messagesContainer = document.getElementById('messages-container');
+  if (messagesContainer) {
+    setTimeout(() => {
+      messagesContainer.style.transition = 'opacity 1s ease';
+      messagesContainer.style.opacity = '0';
+    }, 4000);
+    setTimeout(() => {
+      if (messagesContainer.parentNode) {
+        messagesContainer.parentNode.removeChild(messagesContainer);
+      }
+    }, 5000);
+  }
+});
+</script>
+{% endblock %}

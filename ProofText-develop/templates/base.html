@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>{% block title %}ProofText{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Island+Moments&display=swap" rel="stylesheet" />
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      background: #fff;
+      font-family: 'Island Moments', cursive;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+
+    .btn-submit {
+      background: linear-gradient(90deg, #6c00ff, #b300ff);
+      color: white;
+      border: none;
+      border-radius: 20px;
+      padding: 12px 24px;
+      width: 100%;
+      z-index: 1;
+      position: relative;
+      text-align: center;
+      font-weight: bold;
+      font-size: 1rem;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+      transition: background 0.3s ease;
+    }
+    .btn-submit:hover {
+      background: linear-gradient(90deg, #7a00ff, #c000ff);
+    }
+
+    .grid-bg {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw; height: 100vh;
+      z-index: 0;
+      display: flex;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .grid-inner {
+      width: 1340px;
+      height: 100vh;
+      display: flex;
+      justify-content: space-between;
+      align-items: stretch;
+    }
+    .grid-col {
+      background: linear-gradient(180deg, rgba(250,210,255,0.33), rgba(240,209,255,0.24));
+      height: 100vh;
+      width: 80px;
+      border-radius: 14px;
+      box-shadow: 0 6px 24px 0 rgba(163,120,206,0.04);
+      margin: 0 8px;
+      border: 1.5px solid rgba(222,180,241,0.11);
+    }
+
+    .header-bar {
+      width: 100vw;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-sizing: border-box;
+      padding: 18px 40px 0;
+      background: transparent;
+      position: relative;
+      z-index: 2;
+    }
+    .header-left a {
+      display: flex;
+      align-items: center;
+      text-decoration: none;
+    }
+    .logo {
+      width: 44px;
+      height: 44px;
+      margin-right: 10px;
+    }
+    .brand {
+      font-size: 40px;
+      color: #7000FF;
+      font-weight: bold;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .btn-purple {
+      background: #7000FF;
+      color: #fff;
+      border-radius: 20px;
+      border: none;
+      padding: 12px 26px;
+      font-size: 16px;
+      cursor: pointer;
+      font-family: Arial, sans-serif;
+      transition: background 0.2s;
+      text-decoration: none;
+    }
+    .btn-purple:hover {
+      background: #8C21FF;
+    }
+    .dropdown {
+      position: relative;
+    }
+    .dropdown-icon {
+      background: #7000FF;
+      border-radius: 50%;
+      padding: 10px 14px;
+      font-size: 20px;
+      color: white;
+      cursor: pointer;
+    }
+    .dropdown-content {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: 120%;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      padding: 10px 0;
+      min-width: 180px;
+      font-family: Arial, sans-serif;
+      z-index: 999;
+    }
+    .dropdown-content.show {
+      display: block;
+    }
+    .dropdown-content a {
+      display: block;
+      padding: 12px 20px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      text-decoration: none;
+    }
+    .dropdown-content a:hover {
+      background-color: #f5f5ff;
+    }
+    .dropdown:hover .dropdown-content {
+      display: block;
+    }
+
+    .content {
+      position: relative;
+      z-index: 1;
+      padding: 40px 20px 120px;
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    footer {
+      width: 100vw;
+      background: #242323;
+      color: #fff;
+      text-align: center;
+      padding: 20px 0 12px 0;
+      font-size: 17px;
+      font-family: Arial, sans-serif;
+      letter-spacing: 0.03em;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      z-index: 2;
+    }
+    .heart {
+      color: #ff2050;
+    }
+
+    @media (max-width: 768px) {
+      .brand { font-size: 30px; }
+      .header-bar { flex-direction: column; gap: 10px; }
+    }
+
+    /* Сообщения Django */
+    .messages {
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 0 10px;
+      z-index: 10;
+      position: relative;
+    }
+    .messages .alert {
+      position: relative;
+      padding: 15px 20px;
+      border-radius: 6px;
+      font-size: 16px;
+      margin-bottom: 15px;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      animation: fadeIn 0.4s ease-in-out;
+      color: #155724;
+      background-color: #d4edda;
+      border-left: 5px solid #28a745;
+    }
+    .messages .alert.error,
+    .messages .alert.danger {
+      color: #721c24;
+      background-color: #f8d7da;
+      border-left-color: #dc3545;
+    }
+    .messages .alert.info {
+      color: #0c5460;
+      background-color: #d1ecf1;
+      border-left-color: #17a2b8;
+    }
+    .messages .alert.warning {
+      color: #856404;
+      background-color: #fff3cd;
+      border-left-color: #ffc107;
+    }
+    .messages .close-btn {
+      margin-left: auto;
+      font-size: 22px;
+      cursor: pointer;
+      color: #666;
+      line-height: 1;
+      user-select: none;
+    }
+    @keyframes fadeIn {
+      from {opacity: 0; transform: translateY(-10px);}
+      to {opacity: 1; transform: translateY(0);}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Сетка -->
+  <div class="grid-bg">
+    <div class="grid-inner">
+      {% for _ in " "|ljust:14 %}
+        <div class="grid-col"></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Хедер -->
+  <header class="header-bar">
+    <div class="header-left">
+      <a href="{% url 'home' %}">
+        <span class="logo">
+          <!-- SVG логотип -->
+          <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="22" cy="22" r="20" fill="#F7F6FF" stroke="#D2C5F7" stroke-width="2"/>
+            <ellipse cx="22" cy="18" rx="11" ry="9" fill="#fff" stroke="#B2A8E1" stroke-width="2"/>
+            <ellipse cx="22" cy="18" rx="6" ry="5" fill="#3D4BA2"/>
+            <ellipse cx="19.7" cy="18.3" rx="1.1" ry="1.3" fill="#fff"/>
+            <ellipse cx="24.3" cy="18.3" rx="1.1" ry="1.3" fill="#fff"/>
+            <ellipse cx="22" cy="29" rx="8" ry="5" fill="#F3F5F8" stroke="#B2A8E1"/>
+            <ellipse cx="9" cy="12" rx="2" ry="2" fill="#E1DEF9" stroke="#B2A8E1"/>
+            <ellipse cx="35" cy="12" rx="2" ry="2" fill="#E1DEF9" stroke="#B2A8E1"/>
+            <rect x="9" y="13" width="5" height="2" rx="1" fill="#C5C3E6" transform="rotate(-22 9 13)"/>
+            <rect x="28" y="9" width="5" height="2" rx="1" fill="#C5C3E6" transform="rotate(22 33 10)"/>
+            <ellipse cx="10" cy="33" rx="2" ry="2.5" fill="#ECE9F7" stroke="#B2A8E1"/>
+            <ellipse cx="34" cy="33" rx="2" ry="2.5" fill="#ECE9F7" stroke="#B2A8E1"/>
+          </svg>
+        </span>
+        <span class="brand">ProofText</span>
+      </a>
+    </div>
+    <div class="header-right">
+      <a href="{% url 'register_report' %}" class="btn-purple">Зарегистрировать доклад</a>
+      <a href="{% url 'report' %}" class="btn-purple">Получить справку</a>
+      <div class="dropdown">
+        <div class="dropdown-icon">👤</div>
+        <div class="dropdown-content">
+          <a href="{% url 'profile' %}">Личный кабинет</a>
+          <a href="{% url 'logout' %}">Выйти</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Блок сообщений -->
+  <div class="messages">
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert {{ message.tags }}">
+          {{ message }}
+          <span class="close-btn" onclick="this.parentElement.style.display='none';">&times;</span>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <!-- Основной контент -->
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+
+  <!-- Подвал -->
+  <footer>
+    2025, ProofText. Сделано с <span class="heart">❤️</span>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const dropdown = document.querySelector('.dropdown');
+    const dropdownIcon = dropdown.querySelector('.dropdown-icon');
+    const dropdownContent = dropdown.querySelector('.dropdown-content');
+
+    dropdownIcon.addEventListener('click', function (e) {
+      e.stopPropagation(); // чтобы клик не всплывал и не закрывал меню сразу
+      dropdownContent.classList.toggle('show');
+    });
+
+    // Закрыть меню, если клик вне dropdown
+    document.addEventListener('click', function () {
+      dropdownContent.classList.remove('show');
+    });
+  });
+</script>
+
+</html>
