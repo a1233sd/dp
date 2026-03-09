@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AntiPlagiarism - Демонстрация</title>
+    <title>AntiPlagiarism - Рабочая панель</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -19,14 +19,18 @@
     <main class="container">
       <header class="hero">
         <h1>Система проверки заимствований</h1>
-        <p>Учебный интерфейс для демонстрации работы backend.</p>
+        <p>Рабочая панель для регистрации документов и запуска проверок.</p>
+        <div class="status-row">
+          <span class="status-pill" id="service-status">Сервис: статус не запрошен</span>
+        </div>
         <div class="hero-actions">
           <button id="btn-health" type="button">Статус сервиса</button>
-          <button id="btn-sync" type="button">Обновить данные</button>
+          <button id="btn-sync" type="button">Обновить списки</button>
           <a href="/docs" target="_blank" rel="noreferrer">Swagger</a>
         </div>
       </header>
 
+      <div class="grid two">
       <section class="card">
         <h2>1) Пользователи</h2>
         <form id="user-form">
@@ -36,7 +40,7 @@
             <option value="student">Студент</option>
             <option value="teacher">Преподаватель</option>
           </select>
-          <input name="password" placeholder="Пароль" value="secret123" required />
+          <input type="password" name="password" placeholder="Пароль" required />
           <button type="submit">Создать пользователя</button>
         </form>
       </section>
@@ -57,7 +61,7 @@
           <input name="title" placeholder="Название (опционально)" />
           <select name="kind">
             <option value="submission">Проверяемая работа</option>
-            <option value="reference">Эталонный документ</option>
+            <option value="reference">Уникальный документ</option>
           </select>
           <select name="content_type">
             <option value="text">Текст</option>
@@ -70,7 +74,7 @@
         <form id="doc-form" class="mode-form hidden">
           <input name="title" placeholder="Название" required />
           <select name="kind">
-            <option value="reference">Эталонный документ</option>
+            <option value="reference">Уникальный документ</option>
             <option value="submission">Проверяемая работа</option>
             <option value="external">Внешний источник</option>
           </select>
@@ -81,6 +85,19 @@
           <textarea name="text" rows="5" placeholder="Содержимое документа" required></textarea>
           <button type="submit">Сохранить документ</button>
         </form>
+      </section>
+      </div>
+
+      <section class="card">
+        <h2>4) Правила исключений</h2>
+        <p class="muted">Используются для удаления служебных фраз из текста перед проверкой.</p>
+        <form id="rule-form">
+          <input name="name" placeholder="Название правила" required />
+          <input name="pattern" placeholder="Regex-шаблон (например: Введение)" required />
+          <input name="description" placeholder="Описание (опционально)" />
+          <button type="submit">Добавить правило</button>
+        </form>
+        <div id="rules"></div>
       </section>
 
       <section class="card">
@@ -121,6 +138,7 @@
         </form>
       </section>
 
+      <div class="grid two">
       <section class="card">
         <h2>Документы</h2>
         <div id="docs"></div>
@@ -128,9 +146,12 @@
 
       <section class="card">
         <h2>Результат</h2>
-        <pre id="output">Сервис готов.</pre>
+        <div id="result-summary" class="result-grid"></div>
+        <div id="result-matches"></div>
         <div id="highlighted"></div>
+        <pre id="output">Сервис готов.</pre>
       </section>
+      </div>
     </main>
 
     <script src="/static/app.js"></script>

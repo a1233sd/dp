@@ -192,7 +192,8 @@ def execute(query: str, params: tuple[Any, ...] = ()) -> None:
 
 def execute_many(query: str, rows: Iterable[tuple[Any, ...]]) -> None:
     with connection() as conn:
-        conn.executemany(query, rows)
+        with conn.cursor() as cur:
+            cur.executemany(query, rows)
 
 
 def insert_user(full_name: str, email: str, role: str, password_hash: str) -> dict[str, Any]:
