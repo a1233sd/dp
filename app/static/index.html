@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AntiPlagiarism - Демонстрация</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape bg-a"></div>
+    <div class="bg-shape bg-b"></div>
+
+    <main class="container">
+      <header class="hero">
+        <h1>Система проверки заимствований</h1>
+        <p>Учебный интерфейс для демонстрации работы backend.</p>
+        <div class="hero-actions">
+          <button id="btn-health" type="button">Статус сервиса</button>
+          <button id="btn-sync" type="button">Обновить данные</button>
+          <a href="/docs" target="_blank" rel="noreferrer">Swagger</a>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>1) Пользователи</h2>
+        <form id="user-form">
+          <input name="full_name" placeholder="ФИО" required />
+          <input name="email" placeholder="Электронная почта" required />
+          <select name="role">
+            <option value="student">Студент</option>
+            <option value="teacher">Преподаватель</option>
+          </select>
+          <input name="password" placeholder="Пароль" value="secret123" required />
+          <button type="submit">Создать пользователя</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>2) Добавление документа</h2>
+        <label for="doc-owner-select">Пользователь (владелец документа)</label>
+        <select id="doc-owner-select">
+          <option value="">Без владельца</option>
+        </select>
+
+        <div class="inline">
+          <label><input type="radio" name="doc_mode" value="pdf" checked /> Загрузка PDF</label>
+          <label><input type="radio" name="doc_mode" value="manual" /> Ввод вручную</label>
+        </div>
+
+        <form id="upload-form" class="mode-form">
+          <input name="title" placeholder="Название (опционально)" />
+          <select name="kind">
+            <option value="submission">Проверяемая работа</option>
+            <option value="reference">Эталонный документ</option>
+          </select>
+          <select name="content_type">
+            <option value="text">Текст</option>
+            <option value="code">Код</option>
+          </select>
+          <input type="file" name="file" accept=".pdf" required />
+          <button type="submit">Загрузить PDF</button>
+        </form>
+
+        <form id="doc-form" class="mode-form hidden">
+          <input name="title" placeholder="Название" required />
+          <select name="kind">
+            <option value="reference">Эталонный документ</option>
+            <option value="submission">Проверяемая работа</option>
+            <option value="external">Внешний источник</option>
+          </select>
+          <select name="content_type">
+            <option value="text">Текст</option>
+            <option value="code">Код</option>
+          </select>
+          <textarea name="text" rows="5" placeholder="Содержимое документа" required></textarea>
+          <button type="submit">Сохранить документ</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>3) Проверка документа</h2>
+        <div class="inline">
+          <label><input type="radio" name="check_mode" value="existing" checked /> Проверить загруженный документ</label>
+          <label><input type="radio" name="check_mode" value="raw" /> Проверить вставленный текст</label>
+        </div>
+
+        <form id="check-form">
+          <div id="existing-check-fields">
+            <label for="submission-select">Проверяемый документ</label>
+            <select id="submission-select" name="submission_document_id">
+              <option value="">Выберите документ</option>
+            </select>
+          </div>
+
+          <div id="raw-check-fields" class="hidden">
+            <select name="content_type">
+              <option value="text">Текст</option>
+              <option value="code">Код</option>
+            </select>
+            <textarea name="text" rows="4" placeholder="Вставьте текст для проверки"></textarea>
+          </div>
+
+          <label><input type="checkbox" name="include_external_sources" checked /> Учитывать внешние источники</label>
+          <label><input type="checkbox" name="include_unique_archive" checked /> Учитывать архив уникальных работ</label>
+          <label><input type="checkbox" name="use_exclusion_rules" checked /> Применять правила исключений</label>
+          <p class="muted">
+            Правила исключений скрывают служебные части текста (например, типовые заголовки), чтобы они не влияли на процент оригинальности.
+          </p>
+
+          <label for="uniqueness-threshold">Порог уникальности для включения в архив (в процентах)</label>
+          <input id="uniqueness-threshold" name="uniqueness_threshold" type="number" min="0" max="100" step="0.1" value="80" />
+          <p class="muted">Если результат проверки выше этого порога, работа помечается как уникальная и попадает в архив.</p>
+
+          <button type="submit">Запустить проверку</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Документы</h2>
+        <div id="docs"></div>
+      </section>
+
+      <section class="card">
+        <h2>Результат</h2>
+        <pre id="output">Сервис готов.</pre>
+        <div id="highlighted"></div>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

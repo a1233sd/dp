@@ -49,6 +49,8 @@ uvicorn app.main:app --reload
 
 Swagger UI:
 - `http://127.0.0.1:8000/docs`
+Demo UI:
+- `http://127.0.0.1:8000/`
 
 ## Основные сущности
 

@@ -3,9 +3,12 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .file_ingest import extract_text_from_upload, infer_content_type
@@ -54,6 +57,8 @@ app = FastAPI(
     ),
     version="3.0.0",
 )
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class UserCreate(BaseModel):
@@ -167,6 +172,11 @@ class ArchiveItem(BaseModel):
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+
+
+@app.get("/", include_in_schema=False)
+def frontend() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 def password_hash(raw: str) -> str:
