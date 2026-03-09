@@ -1,122 +1,197 @@
 from fastapi.testclient import TestClient
 
-from app.main import app, checks, documents, exclusion_rules
+from app.main import app
+from app.storage import reset_db
 
 
 client = TestClient(app)
 
 
 def setup_function() -> None:
-    documents.clear()
-    checks.clear()
-    exclusion_rules.clear()
+    reset_db()
 
 
 def test_health() -> None:
-    response = client.get('/health')
+    response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()['status'] == 'ok'
+    assert response.json()["status"] == "ok"
 
 
-def test_text_check_with_match_and_highlight() -> None:
-    reference = client.post(
-        '/documents',
+def test_user_document_check_and_report() -> None:
+    user = client.post(
+        "/users",
         json={
-            'title': 'ref-text',
-            'text': 'Это тестовый документ с оригинальным содержанием и важной фразой для анализа.',
-            'kind': 'reference',
-            'content_type': 'text',
+            "full_name": "Ivan Ivanov",
+            "email": "ivan@example.com",
+            "role": "student",
+            "password": "secret123",
         },
     )
-    assert reference.status_code == 200
-    ref_id = reference.json()['id']
+    assert user.status_code == 200
+    user_id = user.json()["id"]
 
-    response = client.post(
-        '/checks',
-        json={
-            'text': 'В моей работе есть важной фразой для анализа и немного нового текста.',
-            'content_type': 'text',
-            'reference_ids': [ref_id],
-        },
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload['originality_percent'] < 100
-    assert payload['matches']
-    assert '<mark>' in payload['highlighted_html']
-
-
-def test_code_check_with_match() -> None:
-    reference = client.post(
-        '/documents',
-        json={
-            'title': 'ref-code',
-            'text': 'def add(a, b):\n    result = a + b\n    return result',
-            'kind': 'reference',
-            'content_type': 'code',
-        },
-    )
-    ref_id = reference.json()['id']
-
-    response = client.post(
-        '/checks',
-        json={
-            'text': 'def add(x, y):\n    result = x + y\n    return result',
-            'content_type': 'code',
-            'reference_ids': [ref_id],
-        },
-    )
-    assert response.status_code == 200
-    assert response.json()['matches']
-
-
-def test_exclusion_rule_reduces_matches() -> None:
     ref = client.post(
-        '/documents',
+        "/documents",
         json={
-            'title': 'r1',
-            'text': 'Введение Курсовая работа выполнена студентом Ивановым.',
-            'kind': 'reference',
-            'content_type': 'text',
+            "title": "reference-text",
+            "text": "This educational report contains a key phrase for analysis.",
+            "kind": "reference",
+            "content_type": "text",
+            "owner_user_id": user_id,
         },
     )
-    ref_id = ref.json()['id']
+    assert ref.status_code == 200
+    ref_id = ref.json()["id"]
+
+    submission = client.post(
+        "/documents",
+        json={
+            "title": "submission-text",
+            "text": "My work contains a key phrase for analysis and extra original words.",
+            "kind": "submission",
+            "content_type": "text",
+            "owner_user_id": user_id,
+        },
+    )
+    assert submission.status_code == 200
+    submission_id = submission.json()["id"]
+
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission_id,
+            "reference_ids": [ref_id],
+            "include_external_sources": False,
+            "include_unique_archive": False,
+        },
+    )
+    assert check.status_code == 200
+    payload = check.json()
+    assert payload["originality_percent"] < 100
+    assert payload["matches"]
+    assert "<mark>" in payload["highlighted_html"]
+
+    report = client.get(f"/checks/{payload['id']}/report")
+    assert report.status_code == 200
+    assert report.json()["summary"]["matched_sources"] >= 1
+
+
+def test_external_sources_are_used() -> None:
+    ext = client.post(
+        "/external-sources",
+        json={
+            "title": "web-snippet",
+            "url": "https://example.org/source",
+            "text": "unique platform phrase for plagiarism comparison",
+            "content_type": "text",
+        },
+    )
+    assert ext.status_code == 200
+
+    check = client.post(
+        "/checks",
+        json={
+            "text": "this assignment includes unique platform phrase for plagiarism comparison plus changes",
+            "content_type": "text",
+            "include_external_sources": True,
+            "include_unique_archive": False,
+        },
+    )
+    assert check.status_code == 200
+    assert any(m["source_kind"] == "external" for m in check.json()["matches"])
+
+
+def test_exclusion_rules_reduce_matches() -> None:
+    ref = client.post(
+        "/documents",
+        json={
+            "title": "r1",
+            "text": "Introduction standard phrase copied by student",
+            "kind": "reference",
+            "content_type": "text",
+        },
+    )
+    ref_id = ref.json()["id"]
 
     base = client.post(
-        '/checks',
+        "/checks",
         json={
-            'text': 'Введение Курсовая работа выполнена студентом Петровым.',
-            'content_type': 'text',
-            'reference_ids': [ref_id],
-            'use_exclusion_rules': False,
+            "text": "Introduction standard phrase copied by student with unique tail",
+            "content_type": "text",
+            "reference_ids": [ref_id],
+            "include_external_sources": False,
+            "include_unique_archive": False,
+            "use_exclusion_rules": False,
         },
     )
     assert base.status_code == 200
-    base_matches = len(base.json()['matches'])
+    base_matches = len(base.json()["matches"])
 
     rule = client.post(
-        '/rules/exclusions',
-        json={
-            'name': 'remove-intro',
-            'pattern': r'Введение',
-            'description': 'Исключить стандартный заголовок',
-        },
+        "/rules/exclusions",
+        json={"name": "remove_intro", "pattern": "Introduction"},
     )
     assert rule.status_code == 200
 
     reduced = client.post(
-        '/checks',
+        "/checks",
         json={
-            'text': 'Введение Курсовая работа выполнена студентом Петровым.',
-            'content_type': 'text',
-            'reference_ids': [ref_id],
-            'use_exclusion_rules': True,
+            "text": "Introduction standard phrase copied by student with unique tail",
+            "content_type": "text",
+            "reference_ids": [ref_id],
+            "include_external_sources": False,
+            "include_unique_archive": False,
+            "use_exclusion_rules": True,
         },
     )
     assert reduced.status_code == 200
-    assert len(reduced.json()['matches']) <= base_matches
+    assert len(reduced.json()["matches"]) <= base_matches
 
 
-def test_check_without_references_returns_400() -> None:
-    response = client.post('/checks', json={'text': 'Просто текст без базы сравнения'})
-    assert response.status_code == 400
+def test_unique_archive_population() -> None:
+    client.post(
+        "/documents",
+        json={
+            "title": "standalone-submission",
+            "text": "completely original standalone text token one two three four five six",
+            "kind": "submission",
+            "content_type": "text",
+        },
+    )
+    submission_id = client.get("/documents?kind=submission").json()[0]["id"]
+
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission_id,
+            "include_external_sources": False,
+            "include_unique_archive": False,
+            "uniqueness_threshold": 90.0,
+        },
+    )
+    assert check.status_code == 400  # no sources
+
+    # Add a tiny reference that should not impact uniqueness much.
+    client.post(
+        "/documents",
+        json={
+            "title": "small-reference",
+            "text": "alpha beta gamma",
+            "kind": "reference",
+            "content_type": "text",
+        },
+    )
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission_id,
+            "include_external_sources": False,
+            "include_unique_archive": False,
+            "uniqueness_threshold": 90.0,
+        },
+    )
+    assert check.status_code == 200
+
+    archive = client.get("/archive/unique")
+    assert archive.status_code == 200
+    assert any(item["id"] == submission_id for item in archive.json())
