@@ -1,48 +1,17 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import html
 import re
-from typing import Literal
-
-ContentType = Literal["text", "code"]
 
 TOKEN_PATTERN = re.compile(r"[\wа-яА-ЯёЁ-]+", re.UNICODE)
-DEFAULT_SHINGLE_BY_TYPE: dict[ContentType, int] = {"text": 3, "code": 3}
-CODE_KEYWORDS = {
-    "def",
-    "return",
-    "for",
-    "while",
-    "if",
-    "else",
-    "elif",
-    "class",
-    "import",
-    "from",
-    "try",
-    "except",
-    "with",
-    "as",
-    "in",
-    "and",
-    "or",
-    "not",
-    "none",
-    "true",
-    "false",
-}
+SHINGLE_SIZE = 3
 
 
-def tokenize_with_spans(
-    text: str,
-    content_type: ContentType = "text",
-) -> list[tuple[str, int, int]]:
+def tokenize_with_spans(text: str) -> list[tuple[str, int, int]]:
     tokens: list[tuple[str, int, int]] = []
     for match in TOKEN_PATTERN.finditer(text):
         token = match.group(0).lower()
-        if content_type == "code" and token.isidentifier() and token not in CODE_KEYWORDS:
-            token = "id"
         tokens.append((token, match.start(), match.end()))
     return tokens
 
@@ -90,4 +59,3 @@ def build_highlight_html(text: str, intervals: list[tuple[int, int]]) -> str:
     if cursor < len(text):
         chunks.append(html.escape(text[cursor:]))
     return "<pre>" + "".join(chunks) + "</pre>"
-

@@ -1,4 +1,4 @@
-const output = document.getElementById("output");
+﻿const output = document.getElementById("output");
 const highlighted = document.getElementById("highlighted");
 const docsBox = document.getElementById("docs");
 const ownerSelect = document.getElementById("doc-owner-select");
@@ -11,46 +11,43 @@ const statusPill = document.getElementById("service-status");
 const rulesBox = document.getElementById("rules");
 const resultSummary = document.getElementById("result-summary");
 const resultMatches = document.getElementById("result-matches");
+const btnEditOriginality = document.getElementById("btn-edit-originality");
+const btnAddArchive = document.getElementById("btn-add-archive");
+
+const btnOpenResultModal = document.getElementById("btn-open-result-modal");
+const resultModal = document.getElementById("result-modal");
+const btnCloseResultModal = document.getElementById("btn-close-result-modal");
+const modalResultSummary = document.getElementById("modal-result-summary");
+const modalResultMatches = document.getElementById("modal-result-matches");
+const modalHighlighted = document.getElementById("modal-highlighted");
+
+const docModal = document.getElementById("doc-modal");
+const btnCloseDocModal = document.getElementById("btn-close-doc-modal");
+const docEditForm = document.getElementById("doc-edit-form");
+const btnDeleteDocument = document.getElementById("btn-delete-document");
+
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const kindLabel = {
   reference: "Уникальный документ",
   submission: "Проверяемая работа",
-  external: "Внешний источник",
 };
-const typeLabel = {
-  text: "Текст",
-  code: "Код",
-};
-const roleLabel = {
-  student: "Студент",
-  teacher: "Преподаватель",
+const roleLabel = { student: "Студент", teacher: "Преподаватель" };
+const ruleTypeLabel = {
+  literal: "Точная фраза",
+  contains: "Строка содержит",
+  starts_with: "Строка начинается с",
+  regex: "Расширенный (regex)",
 };
 
-function show(data) {
-  if (typeof data === "string") {
-    output.textContent = data;
-    return;
-  }
-  if (data && typeof data === "object") {
-    if ("id" in data && "originality_percent" in data) {
-      output.textContent = `Проверка завершена. Оригинальность: ${data.originality_percent}%`;
-      return;
-    }
-    if ("id" in data && "email" in data) {
-      output.textContent = `Пользователь создан: ${data.full_name}`;
-      return;
-    }
-    if ("id" in data && "kind" in data) {
-      output.textContent = `Документ сохранен: ${data.title}`;
-      return;
-    }
-    if ("status" in data) {
-      output.textContent = `Статус: ${data.status}`;
-      return;
-    }
-  }
-  output.textContent = "Операция выполнена.";
+let currentResult = null;
+let currentCheckId = null;
+let currentSubmissionDocumentId = null;
+let editingDocId = null;
+const docsCache = new Map();
+
+function show(message) {
+  output.textContent = message;
 }
 
 function parseError(payload) {
@@ -64,9 +61,7 @@ async function api(path, options = {}) {
   let data = null;
   try {
     data = await response.json();
-  } catch (_) {
-    data = null;
-  }
+  } catch (_) {}
   if (!response.ok) throw new Error(parseError(data));
   return data;
 }
@@ -94,6 +89,7 @@ function clearFormErrors(form) {
 }
 
 function watchFieldValidation(form) {
+  if (!form) return;
   form.querySelectorAll("input, select, textarea").forEach((el) => {
     el.addEventListener("input", () => clearFieldError(el));
     el.addEventListener("change", () => clearFieldError(el));
@@ -125,20 +121,16 @@ function updateCheckModeUI() {
 function validateUserForm(form) {
   clearFormErrors(form);
   let ok = true;
-  const fullName = form.elements.full_name;
-  const email = form.elements.email;
-  const password = form.elements.password;
-
-  if (!fullName.value.trim()) {
-    setFieldError(fullName, "Введите ФИО.");
+  if (!form.elements.full_name.value.trim()) {
+    setFieldError(form.elements.full_name, "Введите ФИО.");
     ok = false;
   }
-  if (!email.value.trim() || !emailPattern.test(email.value.trim())) {
-    setFieldError(email, "Введите корректный email.");
+  if (!emailPattern.test(form.elements.email.value.trim())) {
+    setFieldError(form.elements.email, "Введите корректный email.");
     ok = false;
   }
-  if (!password.value || password.value.length < 6) {
-    setFieldError(password, "Пароль должен быть не менее 6 символов.");
+  if ((form.elements.password.value || "").length < 6) {
+    setFieldError(form.elements.password, "Пароль: минимум 6 символов.");
     ok = false;
   }
   return ok;
@@ -147,28 +139,26 @@ function validateUserForm(form) {
 function validateUploadForm(form) {
   clearFormErrors(form);
   const file = form.elements.file;
-  let ok = true;
   if (!file.files || !file.files.length) {
     setFieldError(file, "Выберите PDF-файл.");
-    ok = false;
-  } else if (!file.files[0].name.toLowerCase().endsWith(".pdf")) {
-    setFieldError(file, "Допустим только формат PDF.");
-    ok = false;
+    return false;
   }
-  return ok;
+  if (!file.files[0].name.toLowerCase().endsWith(".pdf")) {
+    setFieldError(file, "Допустим только формат PDF.");
+    return false;
+  }
+  return true;
 }
 
 function validateManualForm(form) {
   clearFormErrors(form);
-  const title = form.elements.title;
-  const text = form.elements.text;
   let ok = true;
-  if (!title.value.trim()) {
-    setFieldError(title, "Укажите название документа.");
+  if (!form.elements.title.value.trim()) {
+    setFieldError(form.elements.title, "Укажите название документа.");
     ok = false;
   }
-  if (!text.value.trim()) {
-    setFieldError(text, "Добавьте содержимое документа.");
+  if (!form.elements.text.value.trim()) {
+    setFieldError(form.elements.text, "Введите содержимое документа.");
     ok = false;
   }
   return ok;
@@ -176,85 +166,113 @@ function validateManualForm(form) {
 
 function validateRuleForm(form) {
   clearFormErrors(form);
-  const name = form.elements.name;
-  const pattern = form.elements.pattern;
   let ok = true;
-  if (!name.value.trim()) {
-    setFieldError(name, "Укажите название правила.");
+  if (!form.elements.name.value.trim()) {
+    setFieldError(form.elements.name, "Укажите название правила.");
     ok = false;
   }
-  if (!pattern.value.trim()) {
-    setFieldError(pattern, "Укажите regex-шаблон.");
+  const value = form.elements.value.value.trim();
+  const ruleType = form.elements.rule_type.value;
+  if (!value) {
+    setFieldError(form.elements.value, "Укажите значение правила.");
     ok = false;
-  } else {
+  } else if (ruleType === "regex") {
     try {
-      new RegExp(pattern.value);
+      new RegExp(value);
     } catch (_) {
-      setFieldError(pattern, "Некорректный regex-шаблон.");
+      setFieldError(form.elements.value, "Некорректный regex-шаблон.");
       ok = false;
     }
   }
   return ok;
+}
+
+function updateRuleInputHint(form) {
+  if (!form) return;
+  const type = form.elements.rule_type.value;
+  const input = form.elements.value;
+  if (type === "regex") {
+    input.placeholder = "Regex-шаблон (например: ^\\s*Введение)";
+  } else if (type === "starts_with") {
+    input.placeholder = "Например: Введение";
+  } else if (type === "contains") {
+    input.placeholder = "Например: список литературы";
+  } else {
+    input.placeholder = "Например: Введение";
+  }
 }
 
 function validateCheckForm(form) {
   clearFormErrors(form);
   let ok = true;
   const mode = selectedCheckMode();
-  if (mode === "existing") {
-    const submission = form.elements.submission_document_id;
-    if (!submission.value) {
-      setFieldError(submission, "Выберите проверяемый документ.");
-      ok = false;
-    }
-  } else {
-    const text = form.elements.text;
-    if (!text.value.trim()) {
-      setFieldError(text, "Введите текст для проверки.");
-      ok = false;
-    }
+  if (mode === "existing" && !form.elements.submission_document_id.value) {
+    setFieldError(form.elements.submission_document_id, "Выберите проверяемый документ.");
+    ok = false;
   }
-
-  const threshold = form.elements.uniqueness_threshold;
-  const value = Number(threshold.value);
-  if (Number.isNaN(value) || value < 0 || value > 100) {
-    setFieldError(threshold, "Введите число от 0 до 100.");
+  if (mode === "raw" && !form.elements.text.value.trim()) {
+    setFieldError(form.elements.text, "Введите текст для проверки.");
+    ok = false;
+  }
+  const threshold = Number(form.elements.uniqueness_threshold.value);
+  if (Number.isNaN(threshold) || threshold < 0 || threshold > 100) {
+    setFieldError(form.elements.uniqueness_threshold, "Введите число от 0 до 100.");
     ok = false;
   }
   return ok;
 }
 
-function renderCheckResult(result) {
-  if (!result || typeof result !== "object") {
-    resultSummary.innerHTML = "";
-    resultMatches.innerHTML = "";
-    return;
-  }
-  resultSummary.innerHTML = `
+function buildSummaryHtml(result) {
+  return `
     <div class="kpi"><span>Оригинальность</span><strong>${result.originality_percent}%</strong></div>
     <div class="kpi"><span>Совпавших токенов</span><strong>${result.matched_tokens}</strong></div>
     <div class="kpi"><span>Всего токенов</span><strong>${result.total_tokens}</strong></div>
     <div class="kpi"><span>Совпадений с источниками</span><strong>${(result.matches || []).length}</strong></div>
   `;
+}
 
-  const matches = result.matches || [];
-  if (!matches.length) {
-    resultMatches.innerHTML = '<p class="muted">Совпадений не найдено.</p>';
-    return;
-  }
-
-  resultMatches.innerHTML = matches
-    .slice(0, 10)
+function buildMatchesHtml(matches, limit = 10) {
+  return matches
+    .slice(0, limit)
     .map((m) => {
-      const fragmentBlock =
-        m.source_kind === "reference" ? "" : `<div class="muted">Фрагмент: ${m.fragment}</div>`;
+      const fragment = m.source_fragment || m.fragment || "Фрагмент недоступен";
       return `<div class="match-item">
         <div><strong>${m.source_title}</strong> (${kindLabel[m.source_kind] || m.source_kind})</div>
         <div>Процент перекрытия: ${m.overlap_percent}%</div>
-        ${fragmentBlock}
+        <div class="muted">Фрагмент: ${fragment}</div>
       </div>`;
     })
     .join("");
+}
+
+function renderCheckResult(result) {
+  if (!result || typeof result !== "object") {
+    currentResult = null;
+    currentCheckId = null;
+    currentSubmissionDocumentId = null;
+    resultSummary.innerHTML = "";
+    resultMatches.innerHTML = "";
+    highlighted.innerHTML = "";
+    btnOpenResultModal.classList.add("hidden");
+    btnEditOriginality.classList.add("hidden");
+    btnAddArchive.classList.add("hidden");
+    return;
+  }
+
+  currentResult = result;
+  currentCheckId = result.id || null;
+  currentSubmissionDocumentId = result.submission_document_id || null;
+  resultSummary.innerHTML = buildSummaryHtml(result);
+  btnOpenResultModal.classList.remove("hidden");
+  btnEditOriginality.classList.remove("hidden");
+  btnAddArchive.classList.remove("hidden");
+
+  const matches = result.matches || [];
+  resultMatches.innerHTML = matches.length
+    ? buildMatchesHtml(matches, 10)
+    : '<p class="muted">Совпадений не найдено.</p>';
+
+  highlighted.innerHTML = result.highlighted_html || "";
 }
 
 async function loadUsers() {
@@ -274,26 +292,32 @@ async function loadSubmissions() {
   docs.forEach((d) => {
     const option = document.createElement("option");
     option.value = d.id;
-    option.textContent = `${d.title} [${typeLabel[d.content_type] || d.content_type}]`;
+    option.textContent = d.title;
     submissionSelect.appendChild(option);
   });
 }
 
 async function loadDocuments() {
-  docsBox.innerHTML = "Загрузка...";
+  docsBox.textContent = "Загрузка...";
   const docs = await api("/documents");
+  docsCache.clear();
+  docs.forEach((d) => docsCache.set(d.id, d));
+
   if (!docs.length) {
     docsBox.textContent = "Документов пока нет.";
     return;
   }
+
   docsBox.innerHTML = docs
     .map(
       (d) => `<div class="doc-item">
         <div><strong>${d.title}</strong></div>
         <div>ID: ${d.id}</div>
         <div>Категория: ${kindLabel[d.kind] || d.kind}</div>
-        <div>Тип: ${typeLabel[d.content_type] || d.content_type}</div>
-        <div>В архиве уникальных: ${d.is_unique ? "да" : "нет"}</div>
+        <div class="actions-row">
+          <button type="button" class="ghost" data-doc-edit="${d.id}">Редактировать</button>
+          <button type="button" class="danger" data-doc-delete="${d.id}">Удалить</button>
+        </div>
       </div>`,
     )
     .join("");
@@ -309,7 +333,9 @@ async function loadRules() {
     .map(
       (r) => `<div class="doc-item">
         <div><strong>${r.name}</strong></div>
-        <div>Шаблон: <code>${r.pattern}</code></div>
+        <div>Режим: ${ruleTypeLabel[r.rule_type] || r.rule_type}</div>
+        <div>Значение: <span class="mono">${r.value || ""}</span></div>
+        <div>Шаблон: <span class="mono">${r.pattern}</span></div>
         ${r.description ? `<div class="muted">${r.description}</div>` : ""}
         <button type="button" class="danger" data-del-rule="${r.id}">Удалить</button>
       </div>`,
@@ -329,14 +355,17 @@ document.getElementById("btn-health").addEventListener("click", async () => {
   try {
     const health = await api("/health");
     statusPill.textContent = `Сервис: ${health.status}, документов ${health.documents_total}, пользователей ${health.users_total}`;
-    show(health);
+    show("Сервис доступен.");
   } catch (err) {
     statusPill.textContent = "Сервис: недоступен";
     show(`Ошибка: ${err.message}`);
   }
 });
 
-document.getElementById("btn-sync").addEventListener("click", refreshAll);
+document.getElementById("btn-sync").addEventListener("click", async () => {
+  await refreshAll();
+  show("Списки обновлены.");
+});
 
 document.querySelectorAll('input[name="doc_mode"]').forEach((el) => {
   el.addEventListener("change", updateDocModeUI);
@@ -352,15 +381,14 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
     show("Проверьте поля формы пользователя.");
     return;
   }
-  const form = new FormData(e.target);
-  const payload = Object.fromEntries(form.entries());
+  const payload = Object.fromEntries(new FormData(e.target).entries());
   try {
     const user = await api("/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    show(user);
+    show(`Пользователь создан: ${user.full_name}`);
     e.target.reset();
     await refreshAll();
     ownerSelect.value = user.id;
@@ -380,9 +408,10 @@ uploadForm.addEventListener("submit", async (e) => {
   const owner = ownerSelect.value;
   if (owner) form.set("owner_user_id", owner);
   else form.delete("owner_user_id");
+
   try {
     const doc = await api("/documents/upload", { method: "POST", body: form });
-    show(doc);
+    show(`Документ сохранен: ${doc.title}`);
     await refreshAll();
   } catch (err) {
     show(`Ошибка: ${err.message}`);
@@ -395,17 +424,17 @@ manualForm.addEventListener("submit", async (e) => {
     show("Проверьте поля формы документа.");
     return;
   }
-  const form = new FormData(manualForm);
-  const payload = Object.fromEntries(form.entries());
+  const payload = Object.fromEntries(new FormData(manualForm).entries());
   const owner = ownerSelect.value;
   if (owner) payload.owner_user_id = owner;
+
   try {
     const doc = await api("/documents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    show(doc);
+    show(`Документ сохранен: ${doc.title}`);
     manualForm.reset();
     await refreshAll();
   } catch (err) {
@@ -419,16 +448,16 @@ document.getElementById("rule-form").addEventListener("submit", async (e) => {
     show("Проверьте поля формы правила исключения.");
     return;
   }
-  const form = new FormData(e.target);
-  const payload = Object.fromEntries(form.entries());
+  const payload = Object.fromEntries(new FormData(e.target).entries());
   if (!payload.description) delete payload.description;
+
   try {
-    const rule = await api("/rules/exclusions", {
+    await api("/rules/exclusions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    show(rule);
+    show("Правило добавлено.");
     e.target.reset();
     await refreshAll();
   } catch (err) {
@@ -442,10 +471,103 @@ rulesBox.addEventListener("click", async (e) => {
   const id = btn.getAttribute("data-del-rule");
   try {
     await api(`/rules/exclusions/${id}`, { method: "DELETE" });
-    show(`Правило удалено: ${id}`);
+    show("Правило удалено.");
     await refreshAll();
   } catch (err) {
     show(`Ошибка: ${err.message}`);
+  }
+});
+
+docsBox.addEventListener("click", async (e) => {
+  const editBtn = e.target.closest("[data-doc-edit]");
+  const delBtn = e.target.closest("[data-doc-delete]");
+
+  if (editBtn) {
+    const id = editBtn.getAttribute("data-doc-edit");
+    const doc = docsCache.get(id);
+    if (!doc) return;
+    resultModal.classList.add("hidden");
+    editingDocId = id;
+    docEditForm.elements.document_id.value = id;
+    docEditForm.elements.title.value = doc.title || "";
+    docEditForm.elements.kind.value = doc.kind || "submission";
+    docEditForm.elements.text.value = "";
+    docModal.classList.remove("hidden");
+    return;
+  }
+
+  if (delBtn) {
+    const id = delBtn.getAttribute("data-doc-delete");
+    if (!confirm("Удалить документ? Действие необратимо.")) return;
+    try {
+      await api(`/documents/${id}`, { method: "DELETE" });
+      show("Документ удален.");
+      await refreshAll();
+    } catch (err) {
+      show(`Ошибка: ${err.message}`);
+    }
+  }
+});
+
+docEditForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  clearFormErrors(docEditForm);
+  const id = editingDocId || docEditForm.elements.document_id.value;
+  if (!id) return;
+
+  const title = (docEditForm.elements.title.value || "").trim();
+  if (!title) {
+    setFieldError(docEditForm.elements.title, "Введите название документа.");
+    return;
+  }
+
+  const payload = {
+    title,
+    kind: docEditForm.elements.kind.value,
+  };
+  const text = (docEditForm.elements.text.value || "").trim();
+  if (text) payload.text = text;
+
+  try {
+    await api(`/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    show("Документ обновлен.");
+    docModal.classList.add("hidden");
+    editingDocId = null;
+    await refreshAll();
+  } catch (err) {
+    show(`Ошибка: ${err.message}`);
+  }
+});
+
+btnDeleteDocument.addEventListener("click", async () => {
+  const id = editingDocId || docEditForm.elements.document_id.value;
+  if (!id) return;
+  if (!confirm("Удалить документ? Действие необратимо.")) return;
+
+  try {
+    await api(`/documents/${id}`, { method: "DELETE" });
+    show("Документ удален.");
+    docModal.classList.add("hidden");
+    editingDocId = null;
+    await refreshAll();
+  } catch (err) {
+    show(`Ошибка: ${err.message}`);
+  }
+});
+
+btnCloseDocModal.addEventListener("click", () => {
+  docModal.classList.add("hidden");
+  editingDocId = null;
+});
+
+docModal.addEventListener("click", (e) => {
+  if (e.target === docModal) {
+    docModal.classList.add("hidden");
+    editingDocId = null;
   }
 });
 
@@ -459,8 +581,7 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
   const form = new FormData(e.target);
   const mode = selectedCheckMode();
   const payload = {
-    include_external_sources: form.get("include_external_sources") === "on",
-    include_unique_archive: form.get("include_unique_archive") === "on",
+    include_unique_archive: true,
     use_exclusion_rules: form.get("use_exclusion_rules") === "on",
     uniqueness_threshold: Number(form.get("uniqueness_threshold") || 80),
   };
@@ -469,7 +590,6 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
     payload.submission_document_id = form.get("submission_document_id");
   } else {
     payload.text = (form.get("text") || "").toString().trim();
-    payload.content_type = form.get("content_type");
   }
 
   try {
@@ -478,13 +598,74 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    show(result);
     renderCheckResult(result);
-    highlighted.innerHTML = result.highlighted_html || "";
+    show(`Проверка завершена. Оригинальность: ${result.originality_percent}%`);
     await refreshAll();
   } catch (err) {
     renderCheckResult(null);
-    highlighted.innerHTML = "";
+    show(`Ошибка: ${err.message}`);
+  }
+});
+
+btnOpenResultModal.addEventListener("click", () => {
+  if (!currentResult) {
+    show("Сначала выполните проверку.");
+    return;
+  }
+  docModal.classList.add("hidden");
+  editingDocId = null;
+  modalResultSummary.innerHTML = buildSummaryHtml(currentResult);
+  const matches = currentResult.matches || [];
+  modalResultMatches.innerHTML = matches.length
+    ? buildMatchesHtml(matches, 100)
+    : '<p class="muted">Совпадений не найдено.</p>';
+  modalHighlighted.innerHTML = currentResult.highlighted_html || "";
+  resultModal.classList.remove("hidden");
+});
+
+btnCloseResultModal.addEventListener("click", () => {
+  resultModal.classList.add("hidden");
+});
+
+resultModal.addEventListener("click", (e) => {
+  if (e.target === resultModal) resultModal.classList.add("hidden");
+});
+
+btnEditOriginality.addEventListener("click", async () => {
+  if (!currentCheckId) {
+    show("Сначала выполните проверку.");
+    return;
+  }
+  const raw = prompt("Введите новый процент оригинальности (0..100):");
+  if (raw === null) return;
+  const value = Number(raw);
+  if (Number.isNaN(value) || value < 0 || value > 100) {
+    show("Некорректное значение процента.");
+    return;
+  }
+  try {
+    const updated = await api(`/checks/${currentCheckId}/originality`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ originality_percent: value }),
+    });
+    renderCheckResult(updated);
+    show(`Процент обновлен: ${value}%.`);
+  } catch (err) {
+    show(`Ошибка: ${err.message}`);
+  }
+});
+
+btnAddArchive.addEventListener("click", async () => {
+  if (!currentSubmissionDocumentId) {
+    show("Для этого результата нельзя выполнить действие.");
+    return;
+  }
+  try {
+    await api(`/documents/${currentSubmissionDocumentId}/archive`, { method: "POST" });
+    show("Работа помечена как уникальная.");
+    await refreshAll();
+  } catch (err) {
     show(`Ошибка: ${err.message}`);
   }
 });
@@ -496,5 +677,9 @@ watchFieldValidation(uploadForm);
 watchFieldValidation(manualForm);
 watchFieldValidation(document.getElementById("rule-form"));
 watchFieldValidation(document.getElementById("check-form"));
+watchFieldValidation(docEditForm);
+const ruleForm = document.getElementById("rule-form");
+ruleForm.elements.rule_type.addEventListener("change", () => updateRuleInputHint(ruleForm));
+updateRuleInputHint(ruleForm);
 refreshAll();
 document.getElementById("btn-health").click();

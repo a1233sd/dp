@@ -11,9 +11,9 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .file_ingest import extract_text_from_upload, infer_content_type
+from .file_ingest import extract_text_from_upload
 from .plagiarism import (
-    DEFAULT_SHINGLE_BY_TYPE,
+    SHINGLE_SIZE,
     apply_exclusions,
     build_highlight_html,
     hash_shingle,
@@ -22,6 +22,7 @@ from .plagiarism import (
     tokenize_with_spans,
 )
 from .storage import (
+    delete_document_by_id,
     delete_rule,
     get_check,
     get_check_matches,
@@ -40,20 +41,23 @@ from .storage import (
     list_rules,
     list_users,
     mark_document_unique,
+    promote_document_to_unique_reference,
+    update_document_fields,
     upsert_document_index,
+    update_check_originality,
 )
 
-ContentType = Literal["text", "code"]
-DocumentKind = Literal["reference", "submission", "external"]
+DocumentKind = Literal["reference", "submission"]
 UserRole = Literal["student", "teacher"]
+RuleType = Literal["literal", "contains", "starts_with", "regex"]
 
 
 app = FastAPI(
     title="AntiPlagiarism Educational API",
     description=(
         "Local anti-plagiarism API for educational works. "
-        "Supports local archive index, external source store, exclusion rules, "
-        "text/code checks, and structured reports."
+        "Supports local archive index, exclusion rules, "
+        "text checks, and structured reports."
     ),
     version="3.0.0",
 )
@@ -80,37 +84,40 @@ class DocumentCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     text: str = Field(min_length=1)
     kind: DocumentKind = "reference"
-    content_type: ContentType = "text"
     owner_user_id: str | None = None
-
-
-class ExternalSourceCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    url: str = Field(min_length=5, max_length=1024)
-    text: str = Field(min_length=1)
-    content_type: ContentType = "text"
 
 
 class DocumentOut(BaseModel):
     id: str
     title: str
     kind: DocumentKind
-    content_type: ContentType
     owner_user_id: str | None = None
     source_url: str | None = None
     is_unique: bool
     created_at: str
 
 
+class DocumentUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    text: str | None = None
+    kind: DocumentKind | None = None
+    owner_user_id: str | None = None
+
+
 class ExclusionRuleCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    pattern: str = Field(min_length=1)
+    rule_type: RuleType = "literal"
+    value: str | None = Field(default=None, min_length=1)
+    # Backward compatibility for old clients.
+    pattern: str | None = Field(default=None, min_length=1)
     description: str | None = None
 
 
 class ExclusionRuleOut(BaseModel):
     id: str
     name: str
+    rule_type: RuleType
+    value: str
     pattern: str
     description: str | None
     created_at: str
@@ -120,10 +127,8 @@ class CheckRequest(BaseModel):
     submission_document_id: str | None = None
     text: str | None = None
     title: str | None = Field(default=None, max_length=200)
-    content_type: ContentType | None = None
     owner_user_id: str | None = None
     reference_ids: list[str] | None = None
-    include_external_sources: bool = True
     include_unique_archive: bool = True
     use_exclusion_rules: bool = True
     uniqueness_threshold: float = Field(default=80.0, ge=0.0, le=100.0)
@@ -136,6 +141,7 @@ class MatchOut(BaseModel):
     source_url: str | None = None
     overlap_percent: float
     fragment: str
+    source_fragment: str
     start_char: int
     end_char: int
 
@@ -161,12 +167,15 @@ class CheckReportOut(BaseModel):
 class ArchiveItem(BaseModel):
     id: str
     title: str
-    content_type: ContentType
     created_at: str
     owner_user_id: str | None = None
     shingle_size: int | None = None
     token_count: int | None = None
     updated_at: str | None = None
+
+
+class CheckOriginalityUpdate(BaseModel):
+    originality_percent: float = Field(ge=0.0, le=100.0)
 
 
 @app.on_event("startup")
@@ -193,12 +202,22 @@ def document_out_from_row(row: dict) -> DocumentOut:
         id=row["id"],
         title=row["title"],
         kind=row["kind"],
-        content_type=row["content_type"],
         owner_user_id=row["owner_user_id"],
         source_url=row["source_url"],
         is_unique=bool(row["is_unique"]),
         created_at=row["created_at"],
     )
+
+
+def compile_rule_pattern(rule_type: RuleType, value: str) -> str:
+    escaped = re.escape(value.strip())
+    if rule_type == "literal":
+        return escaped
+    if rule_type == "contains":
+        return rf"(?im)^.*{escaped}.*(?:\n|$)"
+    if rule_type == "starts_with":
+        return rf"(?im)^\s*{escaped}.*(?:\n|$)"
+    return value
 
 
 def check_out_from_db(check_id: str) -> CheckOut:
@@ -259,20 +278,21 @@ def create_document(payload: DocumentCreate) -> DocumentOut:
         title=payload.title.strip(),
         text=payload.text.strip(),
         kind=payload.kind,
-        content_type=payload.content_type,
         owner_user_id=payload.owner_user_id,
     )
     if not row["text"]:
         raise HTTPException(status_code=400, detail="Document text is empty.")
-    tokens = tokenize_with_spans(row["text"], row["content_type"])
+    tokens = tokenize_with_spans(row["text"])
     token_values = [token for token, _, _ in tokens]
-    shingle_size = DEFAULT_SHINGLE_BY_TYPE[row["content_type"]]
     upsert_document_index(
         document_id=row["id"],
-        shingle_size=shingle_size,
+        shingle_size=SHINGLE_SIZE,
         token_count=len(token_values),
-        shingles=shingle_hashes(token_values, shingle_size),
+        shingles=shingle_hashes(token_values, SHINGLE_SIZE),
     )
+    if row["kind"] == "reference":
+        promote_document_to_unique_reference(row["id"])
+        row = get_document(row["id"]) or row
     return document_out_from_row(row)
 
 
@@ -281,59 +301,36 @@ async def upload_document(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     kind: DocumentKind = Form(default="submission"),
-    content_type: ContentType | None = Form(default=None),
     owner_user_id: str | None = Form(default=None),
 ) -> DocumentOut:
     assert_user_exists(owner_user_id)
     body = await extract_text_from_upload(file)
-    inferred_type = infer_content_type(file.filename or "uploaded.txt", fallback=content_type)
     row = insert_document(
         title=(title or file.filename or "uploaded-document").strip(),
         text=body,
         kind=kind,
-        content_type=inferred_type,
         owner_user_id=owner_user_id,
     )
-    tokens = tokenize_with_spans(row["text"], row["content_type"])
+    tokens = tokenize_with_spans(row["text"])
     token_values = [token for token, _, _ in tokens]
-    shingle_size = DEFAULT_SHINGLE_BY_TYPE[row["content_type"]]
     upsert_document_index(
         document_id=row["id"],
-        shingle_size=shingle_size,
+        shingle_size=SHINGLE_SIZE,
         token_count=len(token_values),
-        shingles=shingle_hashes(token_values, shingle_size),
+        shingles=shingle_hashes(token_values, SHINGLE_SIZE),
     )
-    return document_out_from_row(row)
-
-
-@app.post("/external-sources", response_model=DocumentOut, tags=["external-sources"])
-def create_external_source(payload: ExternalSourceCreate) -> DocumentOut:
-    row = insert_document(
-        title=payload.title.strip(),
-        text=payload.text.strip(),
-        kind="external",
-        content_type=payload.content_type,
-        source_url=payload.url.strip(),
-    )
-    tokens = tokenize_with_spans(row["text"], row["content_type"])
-    token_values = [token for token, _, _ in tokens]
-    shingle_size = DEFAULT_SHINGLE_BY_TYPE[row["content_type"]]
-    upsert_document_index(
-        document_id=row["id"],
-        shingle_size=shingle_size,
-        token_count=len(token_values),
-        shingles=shingle_hashes(token_values, shingle_size),
-    )
+    if row["kind"] == "reference":
+        promote_document_to_unique_reference(row["id"])
+        row = get_document(row["id"]) or row
     return document_out_from_row(row)
 
 
 @app.get("/documents", response_model=list[DocumentOut], tags=["documents"])
 def get_documents(
     kind: DocumentKind | None = None,
-    content_type: ContentType | None = None,
     only_unique: bool | None = None,
 ) -> list[DocumentOut]:
-    rows = list_documents(kind=kind, content_type=content_type, only_unique=only_unique)
+    rows = list_documents(kind=kind, only_unique=only_unique)
     return [document_out_from_row(row) for row in rows]
 
 
@@ -345,6 +342,56 @@ def get_document_by_id(document_id: str) -> DocumentOut:
     return document_out_from_row(row)
 
 
+@app.patch("/documents/{document_id}", response_model=DocumentOut, tags=["documents"])
+def patch_document(document_id: str, payload: DocumentUpdate) -> DocumentOut:
+    current = get_document(document_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    fields: dict[str, object] = {}
+    if payload.title is not None:
+        fields["title"] = payload.title.strip()
+    if payload.text is not None:
+        fields["text"] = payload.text
+    if payload.kind is not None:
+        fields["kind"] = payload.kind
+        if payload.kind == "reference":
+            fields["is_unique"] = True
+        elif payload.kind == "submission":
+            fields["is_unique"] = False
+    if payload.owner_user_id is not None:
+        assert_user_exists(payload.owner_user_id)
+        fields["owner_user_id"] = payload.owner_user_id or None
+
+    updated = update_document_fields(document_id, fields)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    # Rebuild index if text changed or document type changed.
+    if payload.text is not None or payload.kind is not None:
+        tokens = tokenize_with_spans(updated["text"])
+        token_values = [token for token, _, _ in tokens]
+        upsert_document_index(
+            document_id=updated["id"],
+            shingle_size=SHINGLE_SIZE,
+            token_count=len(token_values),
+            shingles=shingle_hashes(token_values, SHINGLE_SIZE),
+        )
+
+    if updated["kind"] == "reference":
+        promote_document_to_unique_reference(updated["id"])
+        updated = get_document(updated["id"]) or updated
+
+    return document_out_from_row(updated)
+
+
+@app.delete("/documents/{document_id}", tags=["documents"])
+def delete_document(document_id: str) -> dict[str, str]:
+    if not delete_document_by_id(document_id):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"status": "deleted", "document_id": document_id}
+
+
 @app.get("/archive/unique", response_model=list[ArchiveItem], tags=["archive"])
 def get_unique_archive() -> list[ArchiveItem]:
     rows = list_archive_unique()
@@ -353,11 +400,22 @@ def get_unique_archive() -> list[ArchiveItem]:
 
 @app.post("/rules/exclusions", response_model=ExclusionRuleOut, tags=["rules"])
 def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
+    value = (payload.value or payload.pattern or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="Rule value must not be empty.")
+    rule_type: RuleType = "regex" if payload.value is None and payload.pattern else payload.rule_type
+    compiled_pattern = compile_rule_pattern(rule_type, value)
     try:
-        re.compile(payload.pattern)
+        re.compile(compiled_pattern)
     except re.error as exc:
         raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
-    rule = insert_rule(payload.name.strip(), payload.pattern, payload.description)
+    rule = insert_rule(
+        name=payload.name.strip(),
+        rule_type=rule_type,
+        value=value,
+        pattern=compiled_pattern,
+        description=payload.description,
+    )
     return ExclusionRuleOut(**rule)
 
 
@@ -380,12 +438,14 @@ def run_check(payload: CheckRequest) -> CheckOut:
         submission_doc = get_document(payload.submission_document_id)
         if not submission_doc:
             raise HTTPException(status_code=404, detail="Submission document not found.")
-        if submission_doc["kind"] not in {"submission", "reference"}:
-            raise HTTPException(status_code=400, detail="Submission must be an internal document.")
+        if submission_doc["kind"] != "submission":
+            raise HTTPException(
+                status_code=400,
+                detail="Only submission documents can be checked.",
+            )
 
     if submission_doc:
         source_text = submission_doc["text"]
-        content_type: ContentType = submission_doc["content_type"]
     else:
         if not payload.text:
             raise HTTPException(
@@ -393,29 +453,20 @@ def run_check(payload: CheckRequest) -> CheckOut:
                 detail="Provide submission_document_id or raw text for analysis.",
             )
         source_text = payload.text
-        if payload.content_type is None:
-            raise HTTPException(
-                status_code=400,
-                detail="content_type is required when checking raw text.",
-            )
-        content_type = payload.content_type
         if payload.owner_user_id:
             assert_user_exists(payload.owner_user_id)
 
     patterns = [r["pattern"] for r in list_rules()] if payload.use_exclusion_rules else []
     processed_text = apply_exclusions(source_text, patterns).strip()
-    query_tokens_spans = tokenize_with_spans(processed_text, content_type)
+    query_tokens_spans = tokenize_with_spans(processed_text)
     if not query_tokens_spans:
         raise HTTPException(status_code=400, detail="Text has no tokens for analysis.")
 
     query_tokens = [token for token, _, _ in query_tokens_spans]
-    shingle_size = DEFAULT_SHINGLE_BY_TYPE[content_type]
-    query_shingles = make_shingles(query_tokens, shingle_size)
+    query_shingles = make_shingles(query_tokens, SHINGLE_SIZE)
     query_hashes = {hash_shingle(shingle) for shingle in query_shingles}
 
     source_docs = list_reference_candidates(
-        content_type=content_type,
-        include_external=payload.include_external_sources,
         include_unique_archive=payload.include_unique_archive,
         reference_ids=payload.reference_ids,
         exclude_document_id=submission_doc["id"] if submission_doc else None,
@@ -429,22 +480,22 @@ def run_check(payload: CheckRequest) -> CheckOut:
 
     for ref in source_docs:
         ref_text = apply_exclusions(ref["text"], patterns) if payload.use_exclusion_rules else ref["text"]
-        ref_tokens_spans = tokenize_with_spans(ref_text, content_type)
+        ref_tokens_spans = tokenize_with_spans(ref_text)
         if not ref_tokens_spans:
             continue
         ref_tokens = [token for token, _, _ in ref_tokens_spans]
 
         if payload.use_exclusion_rules:
-            ref_hashes = shingle_hashes(ref_tokens, shingle_size)
+            ref_hashes = shingle_hashes(ref_tokens, SHINGLE_SIZE)
         else:
             indexed = get_document_index(ref["id"])
-            if indexed and indexed["shingle_size"] == shingle_size:
+            if indexed and indexed["shingle_size"] == SHINGLE_SIZE:
                 ref_hashes = indexed["shingles"]
             else:
-                ref_hashes = shingle_hashes(ref_tokens, shingle_size)
+                ref_hashes = shingle_hashes(ref_tokens, SHINGLE_SIZE)
                 upsert_document_index(
                     document_id=ref["id"],
-                    shingle_size=shingle_size,
+                    shingle_size=SHINGLE_SIZE,
                     token_count=len(ref_tokens),
                     shingles=ref_hashes,
                 )
@@ -454,11 +505,16 @@ def run_check(payload: CheckRequest) -> CheckOut:
             continue
 
         local_positions: set[int] = set()
-        for i in range(len(query_tokens) - shingle_size + 1):
-            shingle = tuple(query_tokens[i : i + shingle_size])
+        source_local_positions: set[int] = set()
+        for i in range(len(query_tokens) - SHINGLE_SIZE + 1):
+            shingle = tuple(query_tokens[i : i + SHINGLE_SIZE])
             if hash_shingle(shingle) in common:
-                local_positions.update(range(i, i + shingle_size))
-                matched_positions.update(range(i, i + shingle_size))
+                local_positions.update(range(i, i + SHINGLE_SIZE))
+                matched_positions.update(range(i, i + SHINGLE_SIZE))
+        for i in range(len(ref_tokens) - SHINGLE_SIZE + 1):
+            shingle = tuple(ref_tokens[i : i + SHINGLE_SIZE])
+            if hash_shingle(shingle) in common:
+                source_local_positions.update(range(i, i + SHINGLE_SIZE))
 
         if not local_positions:
             continue
@@ -468,6 +524,13 @@ def run_check(payload: CheckRequest) -> CheckOut:
         start_char = query_tokens_spans[start_idx][1]
         end_char = query_tokens_spans[end_idx][2]
         highlighted_intervals.append((start_char, end_char))
+        source_fragment = ""
+        if source_local_positions:
+            source_start_idx = min(source_local_positions)
+            source_end_idx = max(source_local_positions)
+            source_start_char = ref_tokens_spans[source_start_idx][1]
+            source_end_char = ref_tokens_spans[source_end_idx][2]
+            source_fragment = ref_text[source_start_char:source_end_char]
 
         overlap_percent = round(len(local_positions) / len(query_tokens) * 100, 2)
         matches_payload.append(
@@ -478,6 +541,7 @@ def run_check(payload: CheckRequest) -> CheckOut:
                 "source_url": ref["source_url"],
                 "overlap_percent": overlap_percent,
                 "fragment": processed_text[start_char:end_char],
+                "source_fragment": source_fragment,
                 "start_char": start_char,
                 "end_char": end_char,
             }
@@ -493,7 +557,7 @@ def run_check(payload: CheckRequest) -> CheckOut:
         # Store fresh index for submission in archive index storage.
         upsert_document_index(
             document_id=submission_document_id,
-            shingle_size=shingle_size,
+            shingle_size=SHINGLE_SIZE,
             token_count=len(query_tokens),
             shingles=query_hashes,
         )
@@ -502,7 +566,6 @@ def run_check(payload: CheckRequest) -> CheckOut:
 
     persisted = insert_check(
         submission_document_id=submission_document_id,
-        content_type=content_type,
         total_tokens=total_tokens,
         matched_tokens=matched_tokens,
         originality_percent=originality_percent,
@@ -522,6 +585,13 @@ def get_check_result(check_id: str) -> CheckOut:
     return check_out_from_db(check_id)
 
 
+@app.patch("/checks/{check_id}/originality", response_model=CheckOut, tags=["checks"])
+def patch_check_originality(check_id: str, payload: CheckOriginalityUpdate) -> CheckOut:
+    if not update_check_originality(check_id, payload.originality_percent):
+        raise HTTPException(status_code=404, detail="Check result not found.")
+    return check_out_from_db(check_id)
+
+
 @app.get("/checks/{check_id}/report", response_model=CheckReportOut, tags=["checks"])
 def get_check_report(check_id: str) -> CheckReportOut:
     check = check_out_from_db(check_id)
@@ -537,3 +607,10 @@ def get_check_report(check_id: str) -> CheckReportOut:
         summary=summary,
         by_source_kind=dict(by_kind),
     )
+
+
+@app.post("/documents/{document_id}/archive", tags=["archive"])
+def add_document_to_unique_archive(document_id: str) -> dict[str, str]:
+    if not promote_document_to_unique_reference(document_id):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return {"status": "added_to_unique_archive", "document_id": document_id}

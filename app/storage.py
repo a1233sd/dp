@@ -88,6 +88,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS exclusion_rules (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                rule_type TEXT NOT NULL DEFAULT 'regex',
+                value TEXT NOT NULL DEFAULT '',
                 pattern TEXT NOT NULL,
                 description TEXT,
                 created_at TEXT NOT NULL
@@ -96,12 +98,30 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            ALTER TABLE exclusion_rules
+            ADD COLUMN IF NOT EXISTS rule_type TEXT NOT NULL DEFAULT 'regex'
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE exclusion_rules
+            ADD COLUMN IF NOT EXISTS value TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE exclusion_rules
+            SET value = pattern
+            WHERE value = ''
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS documents (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 text TEXT NOT NULL,
-                kind TEXT NOT NULL CHECK(kind IN ('reference', 'submission', 'external')),
-                content_type TEXT NOT NULL CHECK(content_type IN ('text', 'code')),
+                kind TEXT NOT NULL CHECK(kind IN ('reference', 'submission')),
                 owner_user_id TEXT,
                 source_url TEXT,
                 is_unique BOOLEAN NOT NULL DEFAULT FALSE,
@@ -127,7 +147,6 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS checks (
                 id TEXT PRIMARY KEY,
                 submission_document_id TEXT,
-                content_type TEXT NOT NULL CHECK(content_type IN ('text', 'code')),
                 total_tokens INTEGER NOT NULL,
                 matched_tokens INTEGER NOT NULL,
                 originality_percent REAL NOT NULL,
@@ -149,11 +168,40 @@ def init_db() -> None:
                 source_url TEXT,
                 overlap_percent REAL NOT NULL,
                 fragment TEXT NOT NULL,
+                source_fragment TEXT NOT NULL DEFAULT '',
                 start_char INTEGER NOT NULL,
                 end_char INTEGER NOT NULL,
                 FOREIGN KEY(check_id) REFERENCES checks(id) ON DELETE CASCADE,
                 FOREIGN KEY(source_document_id) REFERENCES documents(id) ON DELETE CASCADE
             );
+            """
+        )
+        conn.execute(
+            """
+            ALTER TABLE check_matches
+            ADD COLUMN IF NOT EXISTS source_fragment TEXT NOT NULL DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            DO $$
+            BEGIN
+                EXECUTE format(
+                    'ALTER TABLE documents DROP COLUMN IF EXISTS %I',
+                    'content' || '_' || 'type'
+                );
+            END $$;
+            """
+        )
+        conn.execute(
+            """
+            DO $$
+            BEGIN
+                EXECUTE format(
+                    'ALTER TABLE checks DROP COLUMN IF EXISTS %I',
+                    'content' || '_' || 'type'
+                );
+            END $$;
             """
         )
 
@@ -230,19 +278,27 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def insert_rule(name: str, pattern: str, description: str | None) -> dict[str, Any]:
+def insert_rule(
+    name: str,
+    rule_type: str,
+    value: str,
+    pattern: str,
+    description: str | None,
+) -> dict[str, Any]:
     rule_id = new_id()
     created_at = utc_now_iso()
     execute(
         """
-        INSERT INTO exclusion_rules (id, name, pattern, description, created_at)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO exclusion_rules (id, name, rule_type, value, pattern, description, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (rule_id, name, pattern, description, created_at),
+        (rule_id, name, rule_type, value, pattern, description, created_at),
     )
     return {
         "id": rule_id,
         "name": name,
+        "rule_type": rule_type,
+        "value": value,
         "pattern": pattern,
         "description": description,
         "created_at": created_at,
@@ -266,7 +322,6 @@ def insert_document(
     title: str,
     text: str,
     kind: str,
-    content_type: str,
     owner_user_id: str | None = None,
     source_url: str | None = None,
 ) -> dict[str, Any]:
@@ -274,10 +329,10 @@ def insert_document(
     created_at = utc_now_iso()
     execute(
         """
-        INSERT INTO documents (id, title, text, kind, content_type, owner_user_id, source_url, is_unique, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, FALSE, %s)
+        INSERT INTO documents (id, title, text, kind, owner_user_id, source_url, is_unique, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, FALSE, %s)
         """,
-        (doc_id, title, text, kind, content_type, owner_user_id, source_url, created_at),
+        (doc_id, title, text, kind, owner_user_id, source_url, created_at),
     )
     return get_document(doc_id)  # type: ignore[return-value]
 
@@ -287,9 +342,42 @@ def get_document(doc_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def update_document_fields(doc_id: str, fields: dict[str, Any]) -> dict[str, Any] | None:
+    if not fields:
+        return get_document(doc_id)
+    if not get_document(doc_id):
+        return None
+    allowed = {
+        "title",
+        "text",
+        "kind",
+        "owner_user_id",
+        "source_url",
+        "is_unique",
+    }
+    items = [(k, v) for k, v in fields.items() if k in allowed]
+    if not items:
+        return get_document(doc_id)
+
+    set_parts = [f"{k} = %s" for k, _ in items]
+    params = [v for _, v in items]
+    params.append(doc_id)
+    execute(
+        f"UPDATE documents SET {', '.join(set_parts)} WHERE id = %s",
+        tuple(params),
+    )
+    return get_document(doc_id)
+
+
+def delete_document_by_id(doc_id: str) -> bool:
+    if not get_document(doc_id):
+        return False
+    execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+    return True
+
+
 def list_documents(
     kind: str | None = None,
-    content_type: str | None = None,
     only_unique: bool | None = None,
 ) -> list[dict[str, Any]]:
     query = "SELECT * FROM documents WHERE 1=1"
@@ -297,9 +385,6 @@ def list_documents(
     if kind:
         query += " AND kind = %s"
         params.append(kind)
-    if content_type:
-        query += " AND content_type = %s"
-        params.append(content_type)
     if only_unique is True:
         query += " AND is_unique = TRUE"
     elif only_unique is False:
@@ -310,22 +395,18 @@ def list_documents(
 
 
 def list_reference_candidates(
-    content_type: str,
-    include_external: bool,
     include_unique_archive: bool,
     reference_ids: list[str] | None = None,
     exclude_document_id: str | None = None,
 ) -> list[dict[str, Any]]:
     query = """
     SELECT * FROM documents
-    WHERE content_type = %s
-      AND (
+    WHERE (
             kind = 'reference'
-            OR (%s AND kind = 'external')
             OR (%s AND is_unique = TRUE)
       )
     """
-    params: list[Any] = [content_type, include_external, include_unique_archive]
+    params: list[Any] = [include_unique_archive]
     if exclude_document_id:
         query += " AND id <> %s"
         params.append(exclude_document_id)
@@ -340,6 +421,23 @@ def list_reference_candidates(
 
 def mark_document_unique(doc_id: str) -> None:
     execute("UPDATE documents SET is_unique = TRUE WHERE id = %s", (doc_id,))
+
+
+def mark_document_unique_if_exists(doc_id: str) -> bool:
+    if not get_document(doc_id):
+        return False
+    mark_document_unique(doc_id)
+    return True
+
+
+def promote_document_to_unique_reference(doc_id: str) -> bool:
+    if not get_document(doc_id):
+        return False
+    execute(
+        "UPDATE documents SET kind = 'reference', is_unique = TRUE WHERE id = %s",
+        (doc_id,),
+    )
+    return True
 
 
 def upsert_document_index(document_id: str, shingle_size: int, token_count: int, shingles: set[str]) -> None:
@@ -371,7 +469,7 @@ def get_document_index(document_id: str) -> dict[str, Any] | None:
 def list_archive_unique() -> list[dict[str, Any]]:
     rows = fetch_all(
         """
-        SELECT d.id, d.title, d.content_type, d.created_at, d.owner_user_id,
+        SELECT d.id, d.title, d.created_at, d.owner_user_id,
                i.shingle_size, i.token_count, i.updated_at
         FROM documents d
         LEFT JOIN document_indexes i ON i.document_id = d.id
@@ -384,7 +482,6 @@ def list_archive_unique() -> list[dict[str, Any]]:
 
 def insert_check(
     submission_document_id: str | None,
-    content_type: str,
     total_tokens: int,
     matched_tokens: int,
     originality_percent: float,
@@ -396,14 +493,13 @@ def insert_check(
     execute(
         """
         INSERT INTO checks (
-            id, submission_document_id, content_type, total_tokens, matched_tokens,
+            id, submission_document_id, total_tokens, matched_tokens,
             originality_percent, processed_text, highlighted_html, checked_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             check_id,
             submission_document_id,
-            content_type,
             total_tokens,
             matched_tokens,
             originality_percent,
@@ -428,6 +524,7 @@ def insert_check_matches(check_id: str, matches: list[dict[str, Any]]) -> None:
                 match.get("source_url"),
                 match["overlap_percent"],
                 match["fragment"],
+                match.get("source_fragment", ""),
                 match["start_char"],
                 match["end_char"],
             )
@@ -437,8 +534,8 @@ def insert_check_matches(check_id: str, matches: list[dict[str, Any]]) -> None:
             """
             INSERT INTO check_matches (
                 id, check_id, source_document_id, source_title, source_kind, source_url,
-                overlap_percent, fragment, start_char, end_char
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                overlap_percent, fragment, source_fragment, start_char, end_char
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             rows,
         )
@@ -453,7 +550,7 @@ def get_check_matches(check_id: str) -> list[dict[str, Any]]:
     rows = fetch_all(
         """
         SELECT source_document_id, source_title, source_kind, source_url,
-               overlap_percent, fragment, start_char, end_char
+               overlap_percent, fragment, source_fragment, start_char, end_char
         FROM check_matches
         WHERE check_id = %s
         ORDER BY overlap_percent DESC
@@ -461,3 +558,13 @@ def get_check_matches(check_id: str) -> list[dict[str, Any]]:
         (check_id,),
     )
     return [dict(row) for row in rows]
+
+
+def update_check_originality(check_id: str, originality_percent: float) -> bool:
+    if not get_check(check_id):
+        return False
+    execute(
+        "UPDATE checks SET originality_percent = %s WHERE id = %s",
+        (originality_percent, check_id),
+    )
+    return True

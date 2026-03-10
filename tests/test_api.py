@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 
 from app.main import app
 from app.storage import reset_db
@@ -36,7 +36,6 @@ def test_user_document_check_and_report() -> None:
             "title": "reference-text",
             "text": "This educational report contains a key phrase for analysis.",
             "kind": "reference",
-            "content_type": "text",
             "owner_user_id": user_id,
         },
     )
@@ -49,7 +48,6 @@ def test_user_document_check_and_report() -> None:
             "title": "submission-text",
             "text": "My work contains a key phrase for analysis and extra original words.",
             "kind": "submission",
-            "content_type": "text",
             "owner_user_id": user_id,
         },
     )
@@ -61,7 +59,6 @@ def test_user_document_check_and_report() -> None:
         json={
             "submission_document_id": submission_id,
             "reference_ids": [ref_id],
-            "include_external_sources": False,
             "include_unique_archive": False,
         },
     )
@@ -76,31 +73,6 @@ def test_user_document_check_and_report() -> None:
     assert report.json()["summary"]["matched_sources"] >= 1
 
 
-def test_external_sources_are_used() -> None:
-    ext = client.post(
-        "/external-sources",
-        json={
-            "title": "web-snippet",
-            "url": "https://example.org/source",
-            "text": "unique platform phrase for plagiarism comparison",
-            "content_type": "text",
-        },
-    )
-    assert ext.status_code == 200
-
-    check = client.post(
-        "/checks",
-        json={
-            "text": "this assignment includes unique platform phrase for plagiarism comparison plus changes",
-            "content_type": "text",
-            "include_external_sources": True,
-            "include_unique_archive": False,
-        },
-    )
-    assert check.status_code == 200
-    assert any(m["source_kind"] == "external" for m in check.json()["matches"])
-
-
 def test_exclusion_rules_reduce_matches() -> None:
     ref = client.post(
         "/documents",
@@ -108,7 +80,6 @@ def test_exclusion_rules_reduce_matches() -> None:
             "title": "r1",
             "text": "Introduction standard phrase copied by student",
             "kind": "reference",
-            "content_type": "text",
         },
     )
     ref_id = ref.json()["id"]
@@ -117,9 +88,7 @@ def test_exclusion_rules_reduce_matches() -> None:
         "/checks",
         json={
             "text": "Introduction standard phrase copied by student with unique tail",
-            "content_type": "text",
             "reference_ids": [ref_id],
-            "include_external_sources": False,
             "include_unique_archive": False,
             "use_exclusion_rules": False,
         },
@@ -129,7 +98,7 @@ def test_exclusion_rules_reduce_matches() -> None:
 
     rule = client.post(
         "/rules/exclusions",
-        json={"name": "remove_intro", "pattern": "Introduction"},
+        json={"name": "remove_intro", "rule_type": "literal", "value": "Introduction"},
     )
     assert rule.status_code == 200
 
@@ -137,9 +106,7 @@ def test_exclusion_rules_reduce_matches() -> None:
         "/checks",
         json={
             "text": "Introduction standard phrase copied by student with unique tail",
-            "content_type": "text",
             "reference_ids": [ref_id],
-            "include_external_sources": False,
             "include_unique_archive": False,
             "use_exclusion_rules": True,
         },
@@ -155,7 +122,6 @@ def test_unique_archive_population() -> None:
             "title": "standalone-submission",
             "text": "completely original standalone text token one two three four five six",
             "kind": "submission",
-            "content_type": "text",
         },
     )
     submission_id = client.get("/documents?kind=submission").json()[0]["id"]
@@ -164,7 +130,6 @@ def test_unique_archive_population() -> None:
         "/checks",
         json={
             "submission_document_id": submission_id,
-            "include_external_sources": False,
             "include_unique_archive": False,
             "uniqueness_threshold": 90.0,
         },
@@ -178,14 +143,12 @@ def test_unique_archive_population() -> None:
             "title": "small-reference",
             "text": "alpha beta gamma",
             "kind": "reference",
-            "content_type": "text",
         },
     )
     check = client.post(
         "/checks",
         json={
             "submission_document_id": submission_id,
-            "include_external_sources": False,
             "include_unique_archive": False,
             "uniqueness_threshold": 90.0,
         },

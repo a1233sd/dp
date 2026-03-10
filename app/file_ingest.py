@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import io
 from pathlib import Path
@@ -7,23 +7,6 @@ from fastapi import HTTPException, UploadFile
 from pypdf import PdfReader
 
 ALLOWED_EXTENSION = ".pdf"
-
-
-def infer_content_type(filename: str, fallback: str | None = None) -> str:
-    ext = Path(filename).suffix.lower()
-    if ext == ALLOWED_EXTENSION:
-        if fallback in {"text", "code"}:
-            return fallback
-        return "text"
-    if fallback in {"text", "code"}:
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF upload is supported. Use '.pdf' files.",
-        )
-    raise HTTPException(
-        status_code=400,
-        detail=f"Unsupported file extension '{ext}'. Only '.pdf' is supported.",
-    )
 
 
 async def extract_text_from_upload(upload: UploadFile) -> str:
