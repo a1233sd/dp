@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -63,6 +65,23 @@ app = FastAPI(
 )
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+logger = logging.getLogger(__name__)
+
+
+def read_percent_env(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        value = float(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a number between 0 and 100.") from exc
+    if value < 0.0 or value > 100.0:
+        raise RuntimeError(f"{name} must be in range [0, 100].")
+    return value
+
+
+DEFAULT_UNIQUENESS_THRESHOLD = read_percent_env("DEFAULT_UNIQUENESS_THRESHOLD", 80.0)
 
 
 class UserCreate(BaseModel):
@@ -131,7 +150,7 @@ class CheckRequest(BaseModel):
     reference_ids: list[str] | None = None
     include_unique_archive: bool = True
     use_exclusion_rules: bool = True
-    uniqueness_threshold: float = Field(default=80.0, ge=0.0, le=100.0)
+    uniqueness_threshold: float = Field(default=DEFAULT_UNIQUENESS_THRESHOLD, ge=0.0, le=100.0)
 
 
 class MatchOut(BaseModel):
@@ -178,9 +197,19 @@ class CheckOriginalityUpdate(BaseModel):
     originality_percent: float = Field(ge=0.0, le=100.0)
 
 
+class SettingsOut(BaseModel):
+    default_uniqueness_threshold: float
+
+
 @app.on_event("startup")
 def startup() -> None:
+    auto_init_db = os.getenv("AUTO_INIT_DB", "1").strip().lower()
+    if auto_init_db in {"0", "false", "no"}:
+        logger.warning("AUTO_INIT_DB is disabled. Skipping DB initialization and migrations.")
+        return
+    logger.info("DB initialization started.")
     init_db()
+    logger.info("DB initialization finished.")
 
 
 @app.get("/", include_in_schema=False)
@@ -248,6 +277,11 @@ def health() -> dict[str, int | str]:
         "unique_archive_total": len(checks_in_archive),
         "users_total": len(list_users()),
     }
+
+
+@app.get("/settings", response_model=SettingsOut, tags=["system"])
+def get_settings() -> SettingsOut:
+    return SettingsOut(default_uniqueness_threshold=DEFAULT_UNIQUENESS_THRESHOLD)
 
 
 @app.post("/users", response_model=UserOut, tags=["users"])

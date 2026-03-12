@@ -34,6 +34,9 @@ async def extract_text_from_upload(upload: UploadFile) -> str:
             pages_text.append(page_text)
 
     text = "\n".join(pages_text).strip()
-    # Image-only/scanned PDFs are accepted but produce empty text.
-    # Such documents are effectively skipped during token-based comparison.
+    if not text:
+        raise HTTPException(
+            status_code=501,
+            detail="Image-only PDFs are not supported yet (OCR is not implemented).",
+        )
     return text

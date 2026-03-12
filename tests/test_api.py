@@ -1,4 +1,7 @@
-﻿from fastapi.testclient import TestClient
+import io
+
+from fastapi.testclient import TestClient
+from pypdf import PdfWriter
 
 from app.main import app
 from app.storage import reset_db
@@ -134,9 +137,8 @@ def test_unique_archive_population() -> None:
             "uniqueness_threshold": 90.0,
         },
     )
-    assert check.status_code == 400  # no sources
+    assert check.status_code == 400
 
-    # Add a tiny reference that should not impact uniqueness much.
     client.post(
         "/documents",
         json={
@@ -158,3 +160,27 @@ def test_unique_archive_population() -> None:
     archive = client.get("/archive/unique")
     assert archive.status_code == 200
     assert any(item["id"] == submission_id for item in archive.json())
+
+
+def test_settings_endpoint_exposes_default_threshold() -> None:
+    response = client.get("/settings")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "default_uniqueness_threshold" in payload
+    assert 0 <= payload["default_uniqueness_threshold"] <= 100
+
+
+def test_upload_image_only_pdf_returns_not_implemented() -> None:
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    stream = io.BytesIO()
+    writer.write(stream)
+    stream.seek(0)
+
+    response = client.post(
+        "/documents/upload",
+        files={"file": ("scan.pdf", stream.getvalue(), "application/pdf")},
+        data={"kind": "submission"},
+    )
+    assert response.status_code == 501
+    assert "OCR is not implemented" in response.json()["detail"]

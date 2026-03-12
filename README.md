@@ -15,6 +15,7 @@
   - индексов документов (shingle hashes),
   - проверок и совпадений,
   - правил исключений.
+- Схема БД управляется миграциями `Alembic` (применяются автоматически при старте).
 - Индексация документов и повторное использование индексов при проверке.
 - Архив уникальных работ:
   - после проверки `submission` документ помечается как уникальный, если `originality_percent >= uniqueness_threshold`.
@@ -29,6 +30,7 @@
 - Pydantic
 - PostgreSQL
 - psycopg (binary)
+- Alembic
 - Pytest
 
 ## Установка и запуск
@@ -43,6 +45,10 @@ uvicorn app.main:app --reload
 Переменная подключения к БД:
 - `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/antiplagiarism`
 - При старте приложение автоматически создаёт БД из `DATABASE_URL`, если она отсутствует.
+- Можно отключить автоинициализацию на старте: `AUTO_INIT_DB=0`.
+- Таймаут подключения к БД (секунды): `DB_CONNECT_TIMEOUT_SECONDS=5`.
+- Значение порога для `POST /checks` по умолчанию:
+  - `DEFAULT_UNIQUENESS_THRESHOLD=80` (диапазон `0..100`).
 
 Swagger UI:
 - `http://127.0.0.1:8000/docs`
@@ -103,4 +109,5 @@ Demo UI:
 ## Ограничения
 
 - `POST /documents/upload` принимает только `.pdf`.
-- Для image-only PDF (сканы без текстового слоя) текст не извлекается; такие файлы сохраняются и пропускаются при сравнении.
+- Для image-only PDF (сканы без текстового слоя) API возвращает `501 Not Implemented`:
+  - OCR пока не реализован.

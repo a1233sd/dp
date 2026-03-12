@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import psycopg
+from alembic import command
+from alembic.config import Config
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
@@ -18,6 +23,31 @@ PG_DSN = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/antiplagiarism",
 )
+DB_CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
+BASE_DIR = Path(__file__).resolve().parents[1]
+logger = logging.getLogger(__name__)
+
+
+def apply_connect_timeout(dsn: str, timeout_seconds: int) -> str:
+    parts = urlsplit(dsn)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query.setdefault("connect_timeout", str(timeout_seconds))
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
+
+
+PG_DSN_WITH_TIMEOUT = apply_connect_timeout(PG_DSN, DB_CONNECT_TIMEOUT_SECONDS)
+
+
+def to_sqlalchemy_psycopg_dsn(dsn: str) -> str:
+    if dsn.startswith("postgresql+"):
+        return dsn
+    if dsn.startswith("postgres://"):
+        return dsn.replace("postgres://", "postgresql+psycopg://", 1)
+    if dsn.startswith("postgresql://"):
+        return dsn.replace("postgresql://", "postgresql+psycopg://", 1)
+    return dsn
 
 
 def utc_now_iso() -> str:
@@ -29,7 +59,8 @@ def new_id() -> str:
 
 
 def ensure_database_exists() -> None:
-    conninfo = conninfo_to_dict(PG_DSN)
+    logger.info("Checking target database existence.")
+    conninfo = conninfo_to_dict(PG_DSN_WITH_TIMEOUT)
     target_db = conninfo.get("dbname")
     if not target_db:
         raise RuntimeError("DATABASE_URL must include database name.")
@@ -49,15 +80,18 @@ def ensure_database_exists() -> None:
             (target_db,),
         ).fetchone()
         if exists:
+            logger.info("Target database already exists: %s", target_db)
             return
+        logger.info("Creating target database: %s", target_db)
         conn.execute(
             sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db))
         )
+        logger.info("Target database created: %s", target_db)
 
 
 @contextmanager
 def connection() -> Iterable[psycopg.Connection]:
-    conn = psycopg.connect(PG_DSN, row_factory=dict_row)
+    conn = psycopg.connect(PG_DSN_WITH_TIMEOUT, row_factory=dict_row)
     try:
         yield conn
         conn.commit()
@@ -69,141 +103,20 @@ def connection() -> Iterable[psycopg.Connection]:
 
 
 def init_db() -> None:
+    logger.info("init_db: ensure_database_exists started.")
     ensure_database_exists()
-    with connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id TEXT PRIMARY KEY,
-                full_name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE,
-                role TEXT NOT NULL CHECK(role IN ('student', 'teacher')),
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS exclusion_rules (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                rule_type TEXT NOT NULL DEFAULT 'regex',
-                value TEXT NOT NULL DEFAULT '',
-                pattern TEXT NOT NULL,
-                description TEXT,
-                created_at TEXT NOT NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            ALTER TABLE exclusion_rules
-            ADD COLUMN IF NOT EXISTS rule_type TEXT NOT NULL DEFAULT 'regex'
-            """
-        )
-        conn.execute(
-            """
-            ALTER TABLE exclusion_rules
-            ADD COLUMN IF NOT EXISTS value TEXT NOT NULL DEFAULT ''
-            """
-        )
-        conn.execute(
-            """
-            UPDATE exclusion_rules
-            SET value = pattern
-            WHERE value = ''
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS documents (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                text TEXT NOT NULL,
-                kind TEXT NOT NULL CHECK(kind IN ('reference', 'submission')),
-                owner_user_id TEXT,
-                source_url TEXT,
-                is_unique BOOLEAN NOT NULL DEFAULT FALSE,
-                created_at TEXT NOT NULL,
-                FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE SET NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS document_indexes (
-                document_id TEXT PRIMARY KEY,
-                shingle_size INTEGER NOT NULL,
-                token_count INTEGER NOT NULL,
-                shingles_json TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS checks (
-                id TEXT PRIMARY KEY,
-                submission_document_id TEXT,
-                total_tokens INTEGER NOT NULL,
-                matched_tokens INTEGER NOT NULL,
-                originality_percent REAL NOT NULL,
-                processed_text TEXT NOT NULL,
-                highlighted_html TEXT NOT NULL,
-                checked_at TEXT NOT NULL,
-                FOREIGN KEY(submission_document_id) REFERENCES documents(id) ON DELETE SET NULL
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS check_matches (
-                id TEXT PRIMARY KEY,
-                check_id TEXT NOT NULL,
-                source_document_id TEXT NOT NULL,
-                source_title TEXT NOT NULL,
-                source_kind TEXT NOT NULL,
-                source_url TEXT,
-                overlap_percent REAL NOT NULL,
-                fragment TEXT NOT NULL,
-                source_fragment TEXT NOT NULL DEFAULT '',
-                start_char INTEGER NOT NULL,
-                end_char INTEGER NOT NULL,
-                FOREIGN KEY(check_id) REFERENCES checks(id) ON DELETE CASCADE,
-                FOREIGN KEY(source_document_id) REFERENCES documents(id) ON DELETE CASCADE
-            );
-            """
-        )
-        conn.execute(
-            """
-            ALTER TABLE check_matches
-            ADD COLUMN IF NOT EXISTS source_fragment TEXT NOT NULL DEFAULT ''
-            """
-        )
-        conn.execute(
-            """
-            DO $$
-            BEGIN
-                EXECUTE format(
-                    'ALTER TABLE documents DROP COLUMN IF EXISTS %I',
-                    'content' || '_' || 'type'
-                );
-            END $$;
-            """
-        )
-        conn.execute(
-            """
-            DO $$
-            BEGIN
-                EXECUTE format(
-                    'ALTER TABLE checks DROP COLUMN IF EXISTS %I',
-                    'content' || '_' || 'type'
-                );
-            END $$;
-            """
-        )
+    logger.info("init_db: migrations started.")
+    run_migrations()
+    logger.info("init_db: migrations finished.")
+
+
+def run_migrations() -> None:
+    logger.info("Running Alembic upgrade head.")
+    config = Config(str(BASE_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(BASE_DIR / "alembic"))
+    config.set_main_option("sqlalchemy.url", to_sqlalchemy_psycopg_dsn(PG_DSN_WITH_TIMEOUT))
+    command.upgrade(config, "head")
+    logger.info("Alembic upgrade head finished.")
 
 
 def reset_db() -> None:

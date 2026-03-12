@@ -45,6 +45,7 @@ let currentCheckId = null;
 let currentSubmissionDocumentId = null;
 let editingDocId = null;
 const docsCache = new Map();
+let defaultUniquenessThreshold = 80;
 
 function show(message) {
   output.textContent = message;
@@ -286,6 +287,15 @@ async function loadUsers() {
   });
 }
 
+async function loadSettings() {
+  const settings = await api("/settings");
+  defaultUniquenessThreshold = Number(settings.default_uniqueness_threshold ?? 80);
+  const thresholdInput = document.getElementById("uniqueness-threshold");
+  if (thresholdInput) {
+    thresholdInput.value = String(defaultUniquenessThreshold);
+  }
+}
+
 async function loadSubmissions() {
   const docs = await api("/documents?kind=submission");
   submissionSelect.innerHTML = '<option value="">Выберите документ</option>';
@@ -345,7 +355,7 @@ async function loadRules() {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadUsers(), loadSubmissions(), loadDocuments(), loadRules()]);
+    await Promise.all([loadSettings(), loadUsers(), loadSubmissions(), loadDocuments(), loadRules()]);
   } catch (err) {
     show(`Ошибка обновления данных: ${err.message}`);
   }
@@ -583,7 +593,7 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
   const payload = {
     include_unique_archive: true,
     use_exclusion_rules: form.get("use_exclusion_rules") === "on",
-    uniqueness_threshold: Number(form.get("uniqueness_threshold") || 80),
+    uniqueness_threshold: Number(form.get("uniqueness_threshold") || defaultUniquenessThreshold),
   };
 
   if (mode === "existing") {
