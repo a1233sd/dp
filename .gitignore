@@ -1,7 +1,5 @@
 __pycache__/
 *.pyc
-.pytest_cache/
-pytest-cache-files-*/
 .venv/
 .test.sqlite3
 .test.sqlite3-journal
