@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import psycopg
@@ -17,9 +18,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 
-# Compatibility alias for old tests/imports. SQLite file is no longer used.
-DB_PATH = None
-PG_DSN = os.getenv(
+DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://postgres:postgres@localhost:5432/antiplagiarism",
 )
@@ -28,7 +27,26 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 logger = logging.getLogger(__name__)
 
 
+def is_sqlite_dsn(dsn: str) -> bool:
+    return dsn.startswith("sqlite:///")
+
+
+def sqlite_path_from_dsn(dsn: str) -> Path | None:
+    if not is_sqlite_dsn(dsn):
+        return None
+    raw_path = unquote(dsn.removeprefix("sqlite:///"))
+    if not raw_path:
+        return None
+    return Path(raw_path)
+
+
+USE_SQLITE = is_sqlite_dsn(DATABASE_URL)
+DB_PATH = sqlite_path_from_dsn(DATABASE_URL)
+
+
 def apply_connect_timeout(dsn: str, timeout_seconds: int) -> str:
+    if is_sqlite_dsn(dsn):
+        return dsn
     parts = urlsplit(dsn)
     query = dict(parse_qsl(parts.query, keep_blank_values=True))
     query.setdefault("connect_timeout", str(timeout_seconds))
@@ -36,11 +54,12 @@ def apply_connect_timeout(dsn: str, timeout_seconds: int) -> str:
         (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
     )
 
-
-PG_DSN_WITH_TIMEOUT = apply_connect_timeout(PG_DSN, DB_CONNECT_TIMEOUT_SECONDS)
+PG_DSN_WITH_TIMEOUT = apply_connect_timeout(DATABASE_URL, DB_CONNECT_TIMEOUT_SECONDS)
 
 
 def to_sqlalchemy_psycopg_dsn(dsn: str) -> str:
+    if is_sqlite_dsn(dsn):
+        return dsn
     if dsn.startswith("postgresql+"):
         return dsn
     if dsn.startswith("postgres://"):
@@ -59,6 +78,10 @@ def new_id() -> str:
 
 
 def ensure_database_exists() -> None:
+    if USE_SQLITE:
+        if DB_PATH and str(DB_PATH) != ":memory:":
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        return
     logger.info("Checking target database existence.")
     conninfo = conninfo_to_dict(PG_DSN_WITH_TIMEOUT)
     target_db = conninfo.get("dbname")
@@ -89,9 +112,105 @@ def ensure_database_exists() -> None:
         logger.info("Target database created: %s", target_db)
 
 
+def sqlite_query(query: str) -> str:
+    return query.replace("%s", "?")
+
+
+def sqlite_connect() -> sqlite3.Connection:
+    db_target = ":memory:" if DB_PATH is None else str(DB_PATH)
+    conn = sqlite3.connect(db_target)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def row_to_dict(row: Any) -> dict[str, Any]:
+    if row is None:
+        return {}
+    return dict(row)
+
+
+def init_sqlite_schema() -> None:
+    with sqlite_connect() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                role TEXT NOT NULL CHECK(role IN ('student', 'teacher')),
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exclusion_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                rule_type TEXT NOT NULL DEFAULT 'regex',
+                value TEXT NOT NULL DEFAULT '',
+                pattern TEXT NOT NULL,
+                description TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                text TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('reference', 'submission')),
+                owner_user_id TEXT,
+                source_url TEXT,
+                is_unique INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS document_indexes (
+                document_id TEXT PRIMARY KEY,
+                shingle_size INTEGER NOT NULL,
+                token_count INTEGER NOT NULL,
+                shingles_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS checks (
+                id TEXT PRIMARY KEY,
+                submission_document_id TEXT,
+                total_tokens INTEGER NOT NULL,
+                matched_tokens INTEGER NOT NULL,
+                originality_percent REAL NOT NULL,
+                processed_text TEXT NOT NULL,
+                highlighted_html TEXT NOT NULL,
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY(submission_document_id) REFERENCES documents(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS check_matches (
+                id TEXT PRIMARY KEY,
+                check_id TEXT NOT NULL,
+                source_document_id TEXT NOT NULL,
+                source_title TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_url TEXT,
+                overlap_percent REAL NOT NULL,
+                fragment TEXT NOT NULL,
+                source_fragment TEXT NOT NULL DEFAULT '',
+                start_char INTEGER NOT NULL,
+                end_char INTEGER NOT NULL,
+                FOREIGN KEY(check_id) REFERENCES checks(id) ON DELETE CASCADE,
+                FOREIGN KEY(source_document_id) REFERENCES documents(id) ON DELETE CASCADE
+            );
+            """
+        )
+
+
 @contextmanager
-def connection() -> Iterable[psycopg.Connection]:
-    conn = psycopg.connect(PG_DSN_WITH_TIMEOUT, row_factory=dict_row)
+def connection() -> Iterable[Any]:
+    if USE_SQLITE:
+        conn = sqlite_connect()
+    else:
+        conn = psycopg.connect(PG_DSN_WITH_TIMEOUT, row_factory=dict_row)
     try:
         yield conn
         conn.commit()
@@ -111,6 +230,11 @@ def init_db() -> None:
 
 
 def run_migrations() -> None:
+    if USE_SQLITE:
+        logger.info("Initializing SQLite schema.")
+        init_sqlite_schema()
+        logger.info("SQLite schema initialization finished.")
+        return
     logger.info("Running Alembic upgrade head.")
     config = Config(str(BASE_DIR / "alembic.ini"))
     config.set_main_option("script_location", str(BASE_DIR / "alembic"))
@@ -122,6 +246,17 @@ def run_migrations() -> None:
 def reset_db() -> None:
     init_db()
     with connection() as conn:
+        if USE_SQLITE:
+            for table in (
+                "check_matches",
+                "checks",
+                "document_indexes",
+                "documents",
+                "exclusion_rules",
+                "users",
+            ):
+                conn.execute(f"DELETE FROM {table}")
+            return
         conn.execute(
             """
             TRUNCATE TABLE
@@ -138,23 +273,32 @@ def reset_db() -> None:
 
 def fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     with connection() as conn:
-        return list(conn.execute(query, params).fetchall())
+        actual_query = sqlite_query(query) if USE_SQLITE else query
+        rows = conn.execute(actual_query, params).fetchall()
+        return [row_to_dict(row) for row in rows]
 
 
 def fetch_one(query: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
     with connection() as conn:
-        return conn.execute(query, params).fetchone()
+        actual_query = sqlite_query(query) if USE_SQLITE else query
+        row = conn.execute(actual_query, params).fetchone()
+        return row_to_dict(row) if row else None
 
 
 def execute(query: str, params: tuple[Any, ...] = ()) -> None:
     with connection() as conn:
-        conn.execute(query, params)
+        actual_query = sqlite_query(query) if USE_SQLITE else query
+        conn.execute(actual_query, params)
 
 
 def execute_many(query: str, rows: Iterable[tuple[Any, ...]]) -> None:
     with connection() as conn:
+        actual_query = sqlite_query(query) if USE_SQLITE else query
+        if USE_SQLITE:
+            conn.executemany(actual_query, rows)
+            return
         with conn.cursor() as cur:
-            cur.executemany(query, rows)
+            cur.executemany(actual_query, rows)
 
 
 def insert_user(full_name: str, email: str, role: str, password_hash: str) -> dict[str, Any]:
