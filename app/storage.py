@@ -18,13 +18,14 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from psycopg.rows import dict_row
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/antiplagiarism",
-)
-DB_CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
 BASE_DIR = Path(__file__).resolve().parents[1]
 logger = logging.getLogger(__name__)
+DEFAULT_POSTGRES_DSN = "postgresql://postgres:postgres@localhost:5432/antiplagiarism"
+DEFAULT_SQLITE_PATH = BASE_DIR / "antiplagiarism.sqlite3"
+DEFAULT_SQLITE_DSN = f"sqlite:///{DEFAULT_SQLITE_PATH.as_posix()}"
+DATABASE_URL_ENV = os.getenv("DATABASE_URL")
+DATABASE_URL = DATABASE_URL_ENV or DEFAULT_POSTGRES_DSN
+DB_CONNECT_TIMEOUT_SECONDS = int(os.getenv("DB_CONNECT_TIMEOUT_SECONDS", "5"))
 
 
 def is_sqlite_dsn(dsn: str) -> bool:
@@ -39,11 +40,6 @@ def sqlite_path_from_dsn(dsn: str) -> Path | None:
         return None
     return Path(raw_path)
 
-
-USE_SQLITE = is_sqlite_dsn(DATABASE_URL)
-DB_PATH = sqlite_path_from_dsn(DATABASE_URL)
-
-
 def apply_connect_timeout(dsn: str, timeout_seconds: int) -> str:
     if is_sqlite_dsn(dsn):
         return dsn
@@ -54,7 +50,16 @@ def apply_connect_timeout(dsn: str, timeout_seconds: int) -> str:
         (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
     )
 
-PG_DSN_WITH_TIMEOUT = apply_connect_timeout(DATABASE_URL, DB_CONNECT_TIMEOUT_SECONDS)
+
+def configure_database(dsn: str) -> None:
+    global DATABASE_URL, USE_SQLITE, DB_PATH, PG_DSN_WITH_TIMEOUT
+    DATABASE_URL = dsn
+    USE_SQLITE = is_sqlite_dsn(dsn)
+    DB_PATH = sqlite_path_from_dsn(dsn)
+    PG_DSN_WITH_TIMEOUT = apply_connect_timeout(dsn, DB_CONNECT_TIMEOUT_SECONDS)
+
+
+configure_database(DATABASE_URL)
 
 
 def to_sqlalchemy_psycopg_dsn(dsn: str) -> str:
@@ -77,6 +82,20 @@ def new_id() -> str:
     return str(uuid4())
 
 
+def should_fallback_to_sqlite(exc: Exception) -> bool:
+    return DATABASE_URL_ENV is None and not USE_SQLITE and isinstance(exc, psycopg.Error)
+
+
+def activate_sqlite_fallback(exc: Exception) -> None:
+    configure_database(DEFAULT_SQLITE_DSN)
+    logger.warning(
+        "PostgreSQL is unavailable and DATABASE_URL is not set. "
+        "Falling back to local SQLite database at %s.",
+        DB_PATH,
+    )
+    logger.warning("Original PostgreSQL connection error: %s", exc)
+
+
 def ensure_database_exists() -> None:
     if USE_SQLITE:
         if DB_PATH and str(DB_PATH) != ":memory:":
@@ -97,19 +116,25 @@ def ensure_database_exists() -> None:
         dbname="postgres",
     )
 
-    with psycopg.connect(admin_conninfo, autocommit=True) as conn:
-        exists = conn.execute(
-            "SELECT 1 FROM pg_database WHERE datname = %s",
-            (target_db,),
-        ).fetchone()
-        if exists:
-            logger.info("Target database already exists: %s", target_db)
+    try:
+        with psycopg.connect(admin_conninfo, autocommit=True) as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM pg_database WHERE datname = %s",
+                (target_db,),
+            ).fetchone()
+            if exists:
+                logger.info("Target database already exists: %s", target_db)
+                return
+            logger.info("Creating target database: %s", target_db)
+            conn.execute(
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db))
+            )
+            logger.info("Target database created: %s", target_db)
+    except psycopg.Error as exc:
+        if should_fallback_to_sqlite(exc):
+            activate_sqlite_fallback(exc)
             return
-        logger.info("Creating target database: %s", target_db)
-        conn.execute(
-            sql.SQL("CREATE DATABASE {}").format(sql.Identifier(target_db))
-        )
-        logger.info("Target database created: %s", target_db)
+        raise
 
 
 def sqlite_query(query: str) -> str:

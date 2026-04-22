@@ -45,6 +45,8 @@ uvicorn app.main:app --reload
 Переменная подключения к БД:
 - `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/antiplagiarism`
 - При старте приложение автоматически создаёт БД из `DATABASE_URL`, если она отсутствует.
+- Если `DATABASE_URL` не задан и локальный PostgreSQL недоступен, приложение автоматически переключается на `sqlite:///./antiplagiarism.sqlite3`.
+- Можно сразу запустить проект на SQLite: `DATABASE_URL=sqlite:///./antiplagiarism.sqlite3`
 - Можно отключить автоинициализацию на старте: `AUTO_INIT_DB=0`.
 - Таймаут подключения к БД (секунды): `DB_CONNECT_TIMEOUT_SECONDS=5`.
 - Значение порога для `POST /checks` по умолчанию:
@@ -54,6 +56,55 @@ Swagger UI:
 - `http://127.0.0.1:8000/docs`
 Demo UI:
 - `http://127.0.0.1:8000/`
+
+## Минимальная проверка через Swagger
+
+Если вам нужно только добавить эталонные документы и проверить одну работу, достаточно трех шагов в Swagger UI (`/docs`).
+
+1. Добавьте один или несколько эталонных документов через `POST /documents`.
+   Для каждого эталона указывайте `kind=reference`.
+
+```json
+{
+  "title": "Эталон 1",
+  "text": "Текст уникального документа, с которым нужно сравнивать работы.",
+  "kind": "reference"
+}
+```
+
+2. Добавьте проверяемый документ через `POST /documents` или `POST /documents/upload`.
+   Если добавляете текстом, укажите `kind=submission` и сохраните `id` из ответа.
+
+```json
+{
+  "title": "Работа студента",
+  "text": "Текст документа, который нужно проверить.",
+  "kind": "submission"
+}
+```
+
+3. Запустите проверку через `POST /checks`.
+   В `submission_document_id` передайте `id` проверяемого документа.
+   В `reference_ids` можно передать список только тех эталонов, которые вы добавили вручную.
+   Если хотите сравнение только с выбранными эталонами, поставьте `include_unique_archive=false`.
+
+```json
+{
+  "submission_document_id": "ID_ПРОВЕРЯЕМОГО_ДОКУМЕНТА",
+  "reference_ids": [
+    "ID_ЭТАЛОНА_1",
+    "ID_ЭТАЛОНА_2"
+  ],
+  "include_unique_archive": false,
+  "use_exclusion_rules": true,
+  "uniqueness_threshold": 80
+}
+```
+
+Результат проверки возвращается сразу в ответе `POST /checks`.
+Если потом захотите открыть его повторно, используйте:
+- `GET /checks/{check_id}` — полный результат проверки.
+- `GET /checks/{check_id}/report` — краткий структурированный отчет.
 
 ## Основные сущности
 
@@ -72,27 +123,31 @@ Demo UI:
 - `GET /health`
 
 ### Пользователи
-- `POST /users`
-- `GET /users`
+- `POST /users` — создать пользователя.
+- `GET /users` — получить список пользователей.
 
 ### Документы
 - `POST /documents` — добавить документ из текста
-- `POST /documents/upload` — загрузить только PDF (`multipart/form-data`)
-- `GET /documents` — список документов
-- `GET /documents/{document_id}`
+- `POST /documents/upload` — загрузить PDF-документ (`multipart/form-data`).
+- `GET /documents` — получить список документов.
+- `GET /documents/{document_id}` — получить документ по ID.
+- `PATCH /documents/{document_id}` — обновить документ.
+- `DELETE /documents/{document_id}` — удалить документ.
 
 ### Архив уникальных работ
-- `GET /archive/unique`
+- `GET /archive/unique` — получить архив уникальных работ.
+- `POST /documents/{document_id}/archive` — вручную добавить документ в архив уникальных работ.
 
 ### Правила исключений
-- `POST /rules/exclusions`
-- `GET /rules/exclusions`
-- `DELETE /rules/exclusions/{rule_id}`
+- `POST /rules/exclusions` — создать правило исключения.
+- `GET /rules/exclusions` — получить список правил исключения.
+- `DELETE /rules/exclusions/{rule_id}` — удалить правило исключения.
 
 ### Проверка и отчеты
-- `POST /checks`
-- `GET /checks/{check_id}`
-- `GET /checks/{check_id}/report`
+- `POST /checks` — запустить проверку документа на заимствования.
+- `GET /checks/{check_id}` — получить сохраненный результат проверки.
+- `PATCH /checks/{check_id}/originality` — вручную изменить процент оригинальности.
+- `GET /checks/{check_id}/report` — получить структурированный отчет по проверке.
 
 ## Базовый сценарий
 

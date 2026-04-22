@@ -170,6 +170,32 @@ def test_settings_endpoint_exposes_default_threshold() -> None:
     assert 0 <= payload["default_uniqueness_threshold"] <= 100
 
 
+def test_system_endpoints_are_hidden_from_openapi() -> None:
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/health" not in paths
+    assert "/settings" not in paths
+
+
+def test_openapi_request_body_required_fields() -> None:
+    schema = app.openapi()
+    components = schema["components"]["schemas"]
+
+    assert set(components["UserCreate"]["required"]) == {"full_name", "email", "role", "password"}
+    assert set(components["DocumentCreate"]["required"]) == {"title", "text"}
+    assert components["DocumentUpdate"].get("required") is None
+    assert set(components["ExclusionRuleCreate"]["required"]) == {"name"}
+    assert components["CheckRequest"].get("required") is None
+    assert set(components["CheckOriginalityUpdate"]["required"]) == {"originality_percent"}
+
+    upload_schema = components["Body_upload_document_documents_upload_post"]
+    assert set(upload_schema["required"]) == {"file"}
+    assert "owner_user_id" not in upload_schema["required"]
+    assert "title" not in upload_schema["required"]
+    assert "kind" not in upload_schema["required"]
+
+
 def test_upload_image_only_pdf_returns_not_implemented() -> None:
     writer = PdfWriter()
     writer.add_blank_page(width=200, height=200)

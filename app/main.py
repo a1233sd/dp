@@ -267,7 +267,7 @@ def check_out_from_db(check_id: str) -> CheckOut:
     )
 
 
-@app.get("/health", tags=["system"])
+@app.get("/health", tags=["system"], include_in_schema=False)
 def health() -> dict[str, int | str]:
     docs = list_documents()
     checks_in_archive = list_archive_unique()
@@ -279,12 +279,18 @@ def health() -> dict[str, int | str]:
     }
 
 
-@app.get("/settings", response_model=SettingsOut, tags=["system"])
+@app.get("/settings", response_model=SettingsOut, tags=["system"], include_in_schema=False)
 def get_settings() -> SettingsOut:
     return SettingsOut(default_uniqueness_threshold=DEFAULT_UNIQUENESS_THRESHOLD)
 
 
-@app.post("/users", response_model=UserOut, tags=["users"])
+@app.post(
+    "/users",
+    response_model=UserOut,
+    tags=["users"],
+    summary="Создать пользователя",
+    description="Создает нового пользователя системы. Поле `role` принимает значения `student` или `teacher`.",
+)
 def create_user(payload: UserCreate) -> UserOut:
     if "@" not in payload.email:
         raise HTTPException(status_code=400, detail="Invalid email format.")
@@ -300,12 +306,27 @@ def create_user(payload: UserCreate) -> UserOut:
     return UserOut(**user)
 
 
-@app.get("/users", response_model=list[UserOut], tags=["users"])
+@app.get(
+    "/users",
+    response_model=list[UserOut],
+    tags=["users"],
+    summary="Получить список пользователей",
+    description="Возвращает всех зарегистрированных пользователей. Удобно для выбора `owner_user_id` при создании документов.",
+)
 def get_users() -> list[UserOut]:
     return [UserOut(**row) for row in list_users()]
 
 
-@app.post("/documents", response_model=DocumentOut, tags=["documents"])
+@app.post(
+    "/documents",
+    response_model=DocumentOut,
+    tags=["documents"],
+    summary="Создать документ из текста",
+    description=(
+        "Добавляет документ вручную. Для эталонного источника укажите `kind=reference`, "
+        "для проверяемой работы `kind=submission`."
+    ),
+)
 def create_document(payload: DocumentCreate) -> DocumentOut:
     assert_user_exists(payload.owner_user_id)
     row = insert_document(
@@ -330,7 +351,16 @@ def create_document(payload: DocumentCreate) -> DocumentOut:
     return document_out_from_row(row)
 
 
-@app.post("/documents/upload", response_model=DocumentOut, tags=["documents"])
+@app.post(
+    "/documents/upload",
+    response_model=DocumentOut,
+    tags=["documents"],
+    summary="Загрузить PDF-документ",
+    description=(
+        "Извлекает текст из PDF и сохраняет документ. Подходит для загрузки проверяемых работ "
+        "и эталонных документов без ручного копирования текста."
+    ),
+)
 async def upload_document(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
@@ -359,7 +389,16 @@ async def upload_document(
     return document_out_from_row(row)
 
 
-@app.get("/documents", response_model=list[DocumentOut], tags=["documents"])
+@app.get(
+    "/documents",
+    response_model=list[DocumentOut],
+    tags=["documents"],
+    summary="Получить список документов",
+    description=(
+        "Возвращает документы из хранилища. Можно отфильтровать по типу через `kind` "
+        "и по признаку уникальности через `only_unique`."
+    ),
+)
 def get_documents(
     kind: DocumentKind | None = None,
     only_unique: bool | None = None,
@@ -368,7 +407,13 @@ def get_documents(
     return [document_out_from_row(row) for row in rows]
 
 
-@app.get("/documents/{document_id}", response_model=DocumentOut, tags=["documents"])
+@app.get(
+    "/documents/{document_id}",
+    response_model=DocumentOut,
+    tags=["documents"],
+    summary="Получить документ по ID",
+    description="Возвращает один документ по его идентификатору.",
+)
 def get_document_by_id(document_id: str) -> DocumentOut:
     row = get_document(document_id)
     if not row:
@@ -376,7 +421,16 @@ def get_document_by_id(document_id: str) -> DocumentOut:
     return document_out_from_row(row)
 
 
-@app.patch("/documents/{document_id}", response_model=DocumentOut, tags=["documents"])
+@app.patch(
+    "/documents/{document_id}",
+    response_model=DocumentOut,
+    tags=["documents"],
+    summary="Обновить документ",
+    description=(
+        "Обновляет название, текст, тип документа или владельца. "
+        "Если меняется текст или тип, индекс документа пересчитывается автоматически."
+    ),
+)
 def patch_document(document_id: str, payload: DocumentUpdate) -> DocumentOut:
     current = get_document(document_id)
     if not current:
@@ -419,20 +473,40 @@ def patch_document(document_id: str, payload: DocumentUpdate) -> DocumentOut:
     return document_out_from_row(updated)
 
 
-@app.delete("/documents/{document_id}", tags=["documents"])
+@app.delete(
+    "/documents/{document_id}",
+    tags=["documents"],
+    summary="Удалить документ",
+    description="Удаляет документ и связанные с ним данные по идентификатору.",
+)
 def delete_document(document_id: str) -> dict[str, str]:
     if not delete_document_by_id(document_id):
         raise HTTPException(status_code=404, detail="Document not found.")
     return {"status": "deleted", "document_id": document_id}
 
 
-@app.get("/archive/unique", response_model=list[ArchiveItem], tags=["archive"])
+@app.get(
+    "/archive/unique",
+    response_model=list[ArchiveItem],
+    tags=["archive"],
+    summary="Получить архив уникальных работ",
+    description="Возвращает документы, помеченные как уникальные и попавшие в архив для дальнейших сравнений.",
+)
 def get_unique_archive() -> list[ArchiveItem]:
     rows = list_archive_unique()
     return [ArchiveItem(**row) for row in rows]
 
 
-@app.post("/rules/exclusions", response_model=ExclusionRuleOut, tags=["rules"])
+@app.post(
+    "/rules/exclusions",
+    response_model=ExclusionRuleOut,
+    tags=["rules"],
+    summary="Создать правило исключения",
+    description=(
+        "Добавляет правило, которое удаляет служебные фрагменты из текста перед проверкой. "
+        "Можно использовать точную фразу, условие по строке или regex."
+    ),
+)
 def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
     value = (payload.value or payload.pattern or "").strip()
     if not value:
@@ -453,19 +527,39 @@ def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
     return ExclusionRuleOut(**rule)
 
 
-@app.get("/rules/exclusions", response_model=list[ExclusionRuleOut], tags=["rules"])
+@app.get(
+    "/rules/exclusions",
+    response_model=list[ExclusionRuleOut],
+    tags=["rules"],
+    summary="Получить список правил исключения",
+    description="Возвращает все правила исключения, которые применяются при проверке текста.",
+)
 def get_exclusion_rules() -> list[ExclusionRuleOut]:
     return [ExclusionRuleOut(**row) for row in list_rules()]
 
 
-@app.delete("/rules/exclusions/{rule_id}", tags=["rules"])
+@app.delete(
+    "/rules/exclusions/{rule_id}",
+    tags=["rules"],
+    summary="Удалить правило исключения",
+    description="Удаляет правило исключения по его идентификатору.",
+)
 def remove_exclusion_rule(rule_id: str) -> dict[str, str]:
     if not delete_rule(rule_id):
         raise HTTPException(status_code=404, detail="Rule not found.")
     return {"status": "deleted"}
 
 
-@app.post("/checks", response_model=CheckOut, tags=["checks"])
+@app.post(
+    "/checks",
+    response_model=CheckOut,
+    tags=["checks"],
+    summary="Проверить документ на заимствования",
+    description=(
+        "Запускает проверку либо по `submission_document_id`, либо по сырому тексту из поля `text`. "
+        "В ответе сразу возвращает процент оригинальности, совпадения и HTML с подсветкой."
+    ),
+)
 def run_check(payload: CheckRequest) -> CheckOut:
     submission_doc = None
     if payload.submission_document_id:
@@ -614,19 +708,37 @@ def run_check(payload: CheckRequest) -> CheckOut:
     return check_out_from_db(persisted["id"])
 
 
-@app.get("/checks/{check_id}", response_model=CheckOut, tags=["checks"])
+@app.get(
+    "/checks/{check_id}",
+    response_model=CheckOut,
+    tags=["checks"],
+    summary="Получить результат проверки",
+    description="Возвращает сохраненный результат проверки по идентификатору `check_id`.",
+)
 def get_check_result(check_id: str) -> CheckOut:
     return check_out_from_db(check_id)
 
 
-@app.patch("/checks/{check_id}/originality", response_model=CheckOut, tags=["checks"])
+@app.patch(
+    "/checks/{check_id}/originality",
+    response_model=CheckOut,
+    tags=["checks"],
+    summary="Изменить процент оригинальности",
+    description="Обновляет поле `originality_percent` у уже сохраненного результата проверки.",
+)
 def patch_check_originality(check_id: str, payload: CheckOriginalityUpdate) -> CheckOut:
     if not update_check_originality(check_id, payload.originality_percent):
         raise HTTPException(status_code=404, detail="Check result not found.")
     return check_out_from_db(check_id)
 
 
-@app.get("/checks/{check_id}/report", response_model=CheckReportOut, tags=["checks"])
+@app.get(
+    "/checks/{check_id}/report",
+    response_model=CheckReportOut,
+    tags=["checks"],
+    summary="Получить структурированный отчет",
+    description="Возвращает итог проверки в виде сводки: ключевые метрики и разбивку совпадений по типам источников.",
+)
 def get_check_report(check_id: str) -> CheckReportOut:
     check = check_out_from_db(check_id)
     by_kind = Counter(match.source_kind for match in check.matches)
@@ -643,7 +755,12 @@ def get_check_report(check_id: str) -> CheckReportOut:
     )
 
 
-@app.post("/documents/{document_id}/archive", tags=["archive"])
+@app.post(
+    "/documents/{document_id}/archive",
+    tags=["archive"],
+    summary="Поместить документ в архив уникальных работ",
+    description="Принудительно помечает документ как уникальный и добавляет его в архив для будущих сравнений.",
+)
 def add_document_to_unique_archive(document_id: str) -> dict[str, str]:
     if not promote_document_to_unique_reference(document_id):
         raise HTTPException(status_code=404, detail="Document not found.")

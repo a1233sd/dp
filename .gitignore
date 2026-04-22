@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 .test.sqlite3
 .test.sqlite3-journal
+antiplagiarism.sqlite3
+antiplagiarism.sqlite3-journal
