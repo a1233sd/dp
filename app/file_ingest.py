@@ -6,6 +6,8 @@ from pathlib import Path
 from fastapi import HTTPException, UploadFile
 from pypdf import PdfReader
 
+from .plagiarism import page_marker
+
 ALLOWED_EXTENSION = ".pdf"
 
 
@@ -28,10 +30,10 @@ async def extract_text_from_upload(upload: UploadFile) -> str:
         raise HTTPException(status_code=400, detail=f"Invalid PDF file: {exc}") from exc
 
     pages_text: list[str] = []
-    for page in reader.pages:
+    for page_number, page in enumerate(reader.pages, start=1):
         page_text = page.extract_text() or ""
         if page_text.strip():
-            pages_text.append(page_text)
+            pages_text.append(f"{page_marker(page_number)}\n{page_text.strip()}")
 
     text = "\n".join(pages_text).strip()
     if not text:

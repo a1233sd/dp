@@ -9,6 +9,7 @@ const existingFields = document.getElementById("existing-check-fields");
 const rawFields = document.getElementById("raw-check-fields");
 const statusPill = document.getElementById("service-status");
 const rulesBox = document.getElementById("rules");
+const pageRulePresets = document.getElementById("page-rule-presets");
 const resultSummary = document.getElementById("result-summary");
 const resultMatches = document.getElementById("result-matches");
 const btnEditOriginality = document.getElementById("btn-edit-originality");
@@ -34,6 +35,7 @@ const kindLabel = {
 };
 const roleLabel = { student: "Студент", teacher: "Преподаватель" };
 const ruleTypeLabel = {
+  pages: "Страницы документа",
   literal: "Точная фраза",
   contains: "Строка содержит",
   starts_with: "Строка начинается с",
@@ -65,6 +67,53 @@ async function api(path, options = {}) {
   } catch (_) {}
   if (!response.ok) throw new Error(parseError(data));
   return data;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function clipText(value, limit = 520) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit - 1).trim()}…`;
+}
+
+function parsePageRanges(value) {
+  const parts = value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+
+  const pages = new Set();
+  for (const part of parts) {
+    const match = part.match(/^(\d+)\s*(?:[-–—]\s*(\d+))?$/);
+    if (!match) return null;
+    const start = Number(match[1]);
+    const end = Number(match[2] || match[1]);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start) return null;
+    for (let page = start; page <= end; page += 1) pages.add(page);
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
+function openResultPage(checkId) {
+  return `/checks/view/${encodeURIComponent(checkId)}`;
+}
+
+function openPendingResultWindow() {
+  const win = window.open("", "_blank");
+  if (!win) return null;
+  win.document.title = "Проверка выполняется";
+  win.document.body.innerHTML =
+    '<main style="font:16px system-ui;padding:32px;color:#1f2937">Проверка выполняется, результат откроется автоматически.</main>';
+  return win;
 }
 
 function clearFieldError(field) {
@@ -177,6 +226,9 @@ function validateRuleForm(form) {
   if (!value) {
     setFieldError(form.elements.value, "Укажите значение правила.");
     ok = false;
+  } else if (ruleType === "pages" && !parsePageRanges(value)) {
+    setFieldError(form.elements.value, "Введите страницы в формате 1-2, 5.");
+    ok = false;
   } else if (ruleType === "regex") {
     try {
       new RegExp(value);
@@ -192,7 +244,10 @@ function updateRuleInputHint(form) {
   if (!form) return;
   const type = form.elements.rule_type.value;
   const input = form.elements.value;
-  if (type === "regex") {
+  if (pageRulePresets) pageRulePresets.classList.toggle("hidden", type !== "pages");
+  if (type === "pages") {
+    input.placeholder = "Страницы: 1-2, 5";
+  } else if (type === "regex") {
     input.placeholder = "Regex-шаблон (например: ^\\s*Введение)";
   } else if (type === "starts_with") {
     input.placeholder = "Например: Введение";
@@ -235,12 +290,19 @@ function buildSummaryHtml(result) {
 function buildMatchesHtml(matches, limit = 10) {
   return matches
     .slice(0, limit)
-    .map((m) => {
-      const fragment = m.source_fragment || m.fragment || "Фрагмент недоступен";
+    .map((m, index) => {
+      const fragment = clipText(m.fragment || "Фрагмент недоступен");
+      const sourceFragment = clipText(m.source_fragment || "Фрагмент источника недоступен");
       return `<div class="match-item">
-        <div><strong>${m.source_title}</strong> (${kindLabel[m.source_kind] || m.source_kind})</div>
-        <div>Процент перекрытия: ${m.overlap_percent}%</div>
-        <div class="muted">Фрагмент: ${fragment}</div>
+        <div class="match-head">
+          <strong>${index + 1}. ${escapeHtml(m.source_title)}</strong>
+          <span>${m.overlap_percent}%</span>
+        </div>
+        <div class="muted">${escapeHtml(kindLabel[m.source_kind] || m.source_kind)} · символы ${m.start_char}-${m.end_char}</div>
+        <div class="fragment-pair compact">
+          <div><span>В работе</span><p>${escapeHtml(fragment)}</p></div>
+          <div><span>В источнике</span><p>${escapeHtml(sourceFragment)}</p></div>
+        </div>
       </div>`;
     })
     .join("");
@@ -340,16 +402,17 @@ async function loadRules() {
     return;
   }
   rulesBox.innerHTML = rules
-    .map(
-      (r) => `<div class="doc-item">
-        <div><strong>${r.name}</strong></div>
-        <div>Режим: ${ruleTypeLabel[r.rule_type] || r.rule_type}</div>
-        <div>Значение: <span class="mono">${r.value || ""}</span></div>
-        <div>Шаблон: <span class="mono">${r.pattern}</span></div>
-        ${r.description ? `<div class="muted">${r.description}</div>` : ""}
+    .map((r) => {
+      const isPages = r.rule_type === "pages";
+      return `<div class="doc-item">
+        <div><strong>${escapeHtml(r.name)}</strong></div>
+        <div>Режим: ${escapeHtml(ruleTypeLabel[r.rule_type] || r.rule_type)}</div>
+        <div>${isPages ? "Страницы" : "Значение"}: <span class="mono">${escapeHtml(r.value || "")}</span></div>
+        ${isPages ? "" : `<div>Шаблон: <span class="mono">${escapeHtml(r.pattern)}</span></div>`}
+        ${r.description ? `<div class="muted">${escapeHtml(r.description)}</div>` : ""}
         <button type="button" class="danger" data-del-rule="${r.id}">Удалить</button>
-      </div>`,
-    )
+      </div>`;
+    })
     .join("");
 }
 
@@ -384,6 +447,20 @@ document.querySelectorAll('input[name="doc_mode"]').forEach((el) => {
 document.querySelectorAll('input[name="check_mode"]').forEach((el) => {
   el.addEventListener("change", updateCheckModeUI);
 });
+
+if (pageRulePresets) {
+  pageRulePresets.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-rule-preset-name]");
+    if (!btn) return;
+    const form = document.getElementById("rule-form");
+    form.elements.rule_type.value = "pages";
+    form.elements.name.value = btn.getAttribute("data-rule-preset-name") || "";
+    const pages = btn.getAttribute("data-rule-preset-pages") || "";
+    if (pages) form.elements.value.value = pages;
+    updateRuleInputHint(form);
+    form.elements.value.focus();
+  });
+}
 
 document.getElementById("user-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -469,6 +546,7 @@ document.getElementById("rule-form").addEventListener("submit", async (e) => {
     });
     show("Правило добавлено.");
     e.target.reset();
+    updateRuleInputHint(e.target);
     await refreshAll();
   } catch (err) {
     show(`Ошибка: ${err.message}`);
@@ -602,6 +680,7 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
     payload.text = (form.get("text") || "").toString().trim();
   }
 
+  const resultWindow = openPendingResultWindow();
   try {
     const result = await api("/checks", {
       method: "POST",
@@ -609,9 +688,14 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
       body: JSON.stringify(payload),
     });
     renderCheckResult(result);
-    show(`Проверка завершена. Оригинальность: ${result.originality_percent}%`);
+    const resultUrl = openResultPage(result.id);
+    if (resultWindow && !resultWindow.closed) {
+      resultWindow.location.href = resultUrl;
+    }
+    show(`Проверка завершена. Оригинальность: ${result.originality_percent}%. Страница результата: ${resultUrl}`);
     await refreshAll();
   } catch (err) {
+    if (resultWindow && !resultWindow.closed) resultWindow.close();
     renderCheckResult(null);
     show(`Ошибка: ${err.message}`);
   }

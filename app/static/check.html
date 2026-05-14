@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Результат проверки</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/check.css" />
+  </head>
+  <body class="result-page">
+    <main class="check-shell">
+      <header class="check-top">
+        <div>
+          <a class="back-link" href="/">Панель</a>
+          <h1>Результат проверки</h1>
+          <p id="check-meta">Загрузка результата...</p>
+        </div>
+        <div class="score-meter" id="score-meter">
+          <span id="score-value">--%</span>
+          <small>оригинальность</small>
+        </div>
+      </header>
+
+      <section id="status-line" class="status-line">Получаем данные проверки...</section>
+
+      <section id="check-kpis" class="result-grid check-kpis"></section>
+
+      <section class="result-actions">
+        <button id="btn-edit-originality" type="button" class="ghost">Изменить процент</button>
+        <button id="btn-add-archive" type="button" class="ghost">Сделать уникальной</button>
+        <button id="btn-print" type="button" class="ghost">Печать</button>
+      </section>
+
+      <section class="result-workspace">
+        <aside class="matches-panel">
+          <div class="panel-head">
+            <h2>Совпадения</h2>
+            <input id="match-filter" type="search" placeholder="Фильтр по источнику" />
+          </div>
+          <div id="matches-list"></div>
+        </aside>
+
+        <section class="reader-panel">
+          <div class="panel-head">
+            <h2>Текст работы</h2>
+            <span id="reader-count" class="muted"></span>
+          </div>
+          <div id="document-view" class="document-view"></div>
+        </section>
+      </section>
+
+      <section id="compare-panel" class="compare-panel">
+        <div class="panel-head">
+          <div>
+            <h2 id="compare-title">Сравнение фрагментов</h2>
+            <p id="compare-source" class="muted"></p>
+          </div>
+          <span id="compare-percent" class="source-percent"></span>
+        </div>
+        <div class="compare-grid">
+          <article>
+            <h3>В проверяемой работе</h3>
+            <div id="query-fragment" class="fragment-text"></div>
+          </article>
+          <article>
+            <h3>В источнике</h3>
+            <div id="source-fragment" class="fragment-text"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script src="/static/check.js"></script>
+  </body>
+</html>

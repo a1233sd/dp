@@ -158,6 +158,12 @@ form {
   margin: 8px 0;
 }
 
+.quick-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 input,
 select,
 textarea {
@@ -251,6 +257,53 @@ label {
   margin-top: 8px;
 }
 
+.match-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.match-head span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #0f766e18;
+  color: #0f766e;
+  padding: 3px 8px;
+  font-weight: 700;
+}
+
+.fragment-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fragment-pair div {
+  border: 1px solid #eee1cc;
+  border-radius: 8px;
+  background: #fffaf2;
+  padding: 8px;
+}
+
+.fragment-pair span {
+  display: block;
+  margin-bottom: 4px;
+  color: #766a58;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fragment-pair p {
+  margin: 0;
+}
+
+.fragment-pair.compact p {
+  font-size: 0.86rem;
+}
+
 .danger {
   background: #b91c1c;
 }
@@ -338,6 +391,10 @@ details {
   }
 
   .modal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fragment-pair {
     grid-template-columns: 1fr;
   }
 }

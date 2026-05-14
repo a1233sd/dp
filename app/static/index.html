@@ -85,13 +85,19 @@
         <form id="rule-form">
           <input name="name" placeholder="Название правила" required />
           <select name="rule_type">
+            <option value="pages">Страницы документа</option>
             <option value="literal">Точная фраза</option>
             <option value="contains">Строка содержит</option>
             <option value="starts_with">Строка начинается с</option>
             <option value="regex">Расширенный (regex)</option>
           </select>
-          <input name="value" placeholder="Например: Введение" required />
+          <input name="value" placeholder="Например: 1-2, 5" required />
           <input name="description" placeholder="Описание (опционально)" />
+          <div id="page-rule-presets" class="quick-presets" aria-label="Быстрые шаблоны страниц">
+            <button type="button" class="ghost" data-rule-preset-name="Титульный лист" data-rule-preset-pages="1">Титульный лист</button>
+            <button type="button" class="ghost" data-rule-preset-name="Задание и аннотация" data-rule-preset-pages="1-2">1-2 страницы</button>
+            <button type="button" class="ghost" data-rule-preset-name="Список источников" data-rule-preset-pages="">Список источников</button>
+          </div>
           <button type="submit">Добавить правило</button>
         </form>
         <div id="rules"></div>

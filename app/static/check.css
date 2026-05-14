@@ -1,0 +1,271 @@
+.result-page {
+  background: #f4f6f8;
+}
+
+.check-shell {
+  width: min(1440px, 96vw);
+  margin: 20px auto 42px;
+  display: grid;
+  gap: 14px;
+}
+
+.check-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  color: #f9fafb;
+  background: linear-gradient(135deg, #172033, #24324a);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 14px 32px #11182722;
+}
+
+.check-top h1 {
+  margin: 8px 0 6px;
+}
+
+.check-top p {
+  margin: 0;
+  color: #dbe4f0;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #dbeafe;
+  background: #ffffff14;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.score-meter {
+  width: 152px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  flex: 0 0 auto;
+  background: conic-gradient(#10b981 0deg, #334155 0deg);
+  position: relative;
+}
+
+.score-meter::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: #172033;
+}
+
+.score-meter span,
+.score-meter small {
+  position: relative;
+  z-index: 1;
+}
+
+.score-meter span {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.score-meter small {
+  margin-top: 2px;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+}
+
+.status-line,
+.matches-panel,
+.reader-panel,
+.compare-panel {
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px #1118270d;
+}
+
+.status-line {
+  padding: 10px 12px;
+  color: #334155;
+}
+
+.check-kpis {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+
+.check-kpis .kpi {
+  background: #fff;
+  border-color: #d9e0e8;
+}
+
+.result-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.result-workspace {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.matches-panel,
+.reader-panel,
+.compare-panel {
+  padding: 12px;
+}
+
+.matches-panel {
+  position: sticky;
+  top: 14px;
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-head h2,
+.panel-head h3 {
+  margin: 0;
+}
+
+.panel-head input {
+  max-width: 210px;
+}
+
+.match-card {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #dbe3ed;
+  border-radius: 8px;
+  padding: 10px;
+  margin-top: 8px;
+  color: #1f2937;
+  background: #fff;
+  cursor: pointer;
+}
+
+.match-card:hover,
+.match-card.active {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px #0f766e18;
+}
+
+.match-card.active {
+  background: #f0fdfa;
+}
+
+.match-card strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.match-card .source-percent {
+  margin-top: 8px;
+}
+
+.source-percent {
+  display: inline-flex;
+  border-radius: 999px;
+  background: #0f766e18;
+  color: #0f766e;
+  padding: 4px 8px;
+  font-weight: 700;
+}
+
+.document-view {
+  min-height: 560px;
+  max-height: 72vh;
+  overflow: auto;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  padding: 18px;
+  background: #fbfcfd;
+  color: #1f2937;
+  line-height: 1.72;
+  white-space: pre-wrap;
+}
+
+.doc-hit {
+  border: 0;
+  border-radius: 4px;
+  padding: 1px 2px;
+  background: #fde68a;
+  color: #1f2937;
+  cursor: pointer;
+}
+
+.doc-hit.active {
+  background: #f97316;
+  color: #fff;
+}
+
+.compare-panel {
+  scroll-margin-top: 16px;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.compare-grid article {
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #fbfcfd;
+  padding: 12px;
+}
+
+.compare-grid h3 {
+  margin: 0 0 10px;
+  font-size: 0.96rem;
+}
+
+.fragment-text {
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.shared-word {
+  border-radius: 4px;
+  background: #d1fae5;
+  color: #065f46;
+  padding: 1px 2px;
+}
+
+@media (max-width: 900px) {
+  .check-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .result-workspace,
+  .compare-grid,
+  .check-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .matches-panel {
+    position: static;
+    max-height: none;
+  }
+
+  .document-view {
+    max-height: none;
+  }
+}

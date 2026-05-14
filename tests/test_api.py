@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 
 from app.main import app
+from app.plagiarism import page_marker
 from app.storage import reset_db
 
 
@@ -116,6 +117,60 @@ def test_exclusion_rules_reduce_matches() -> None:
     )
     assert reduced.status_code == 200
     assert len(reduced.json()["matches"]) <= base_matches
+
+
+def test_page_exclusion_rules_remove_selected_pages() -> None:
+    ref_text = (
+        f"{page_marker(1)}\n"
+        "Copied title sheet common phrase for page exclusion.\n"
+        f"{page_marker(2)}\n"
+        "Reference body alpha beta gamma delta."
+    )
+    submission_text = (
+        f"{page_marker(1)}\n"
+        "Copied title sheet common phrase for page exclusion.\n"
+        f"{page_marker(2)}\n"
+        "Submission body epsilon zeta eta theta."
+    )
+    ref = client.post(
+        "/documents",
+        json={"title": "reference-with-pages", "text": ref_text, "kind": "reference"},
+    )
+    submission = client.post(
+        "/documents",
+        json={"title": "submission-with-pages", "text": submission_text, "kind": "submission"},
+    )
+
+    base = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": False,
+        },
+    )
+    assert base.status_code == 200
+    assert base.json()["matches"]
+
+    rule = client.post(
+        "/rules/exclusions",
+        json={"name": "title page", "rule_type": "pages", "value": "1"},
+    )
+    assert rule.status_code == 200
+    assert rule.json()["pattern"] == "1"
+
+    reduced = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": True,
+        },
+    )
+    assert reduced.status_code == 200
+    assert reduced.json()["matches"] == []
 
 
 def test_unique_archive_population() -> None:

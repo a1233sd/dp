@@ -16,11 +16,13 @@ from pydantic import BaseModel, Field
 from .file_ingest import extract_text_from_upload
 from .plagiarism import (
     SHINGLE_SIZE,
-    apply_exclusions,
     build_highlight_html,
     hash_shingle,
     make_shingles,
+    normalize_page_ranges,
+    prepare_text_for_analysis,
     shingle_hashes,
+    strip_page_markers,
     tokenize_with_spans,
 )
 from .storage import (
@@ -51,7 +53,7 @@ from .storage import (
 
 DocumentKind = Literal["reference", "submission"]
 UserRole = Literal["student", "teacher"]
-RuleType = Literal["literal", "contains", "starts_with", "regex"]
+RuleType = Literal["literal", "contains", "starts_with", "regex", "pages"]
 
 
 app = FastAPI(
@@ -217,6 +219,11 @@ def frontend() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+@app.get("/checks/view/{check_id}", include_in_schema=False)
+def check_view(check_id: str) -> FileResponse:
+    return FileResponse(STATIC_DIR / "check.html")
+
+
 def password_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -239,6 +246,8 @@ def document_out_from_row(row: dict) -> DocumentOut:
 
 
 def compile_rule_pattern(rule_type: RuleType, value: str) -> str:
+    if rule_type == "pages":
+        return normalize_page_ranges(value)
     escaped = re.escape(value.strip())
     if rule_type == "literal":
         return escaped
@@ -337,7 +346,7 @@ def create_document(payload: DocumentCreate) -> DocumentOut:
     )
     if not row["text"]:
         raise HTTPException(status_code=400, detail="Document text is empty.")
-    tokens = tokenize_with_spans(row["text"])
+    tokens = tokenize_with_spans(strip_page_markers(row["text"]))
     token_values = [token for token, _, _ in tokens]
     upsert_document_index(
         document_id=row["id"],
@@ -375,7 +384,7 @@ async def upload_document(
         kind=kind,
         owner_user_id=owner_user_id,
     )
-    tokens = tokenize_with_spans(row["text"])
+    tokens = tokenize_with_spans(strip_page_markers(row["text"]))
     token_values = [token for token, _, _ in tokens]
     upsert_document_index(
         document_id=row["id"],
@@ -457,7 +466,7 @@ def patch_document(document_id: str, payload: DocumentUpdate) -> DocumentOut:
 
     # Rebuild index if text changed or document type changed.
     if payload.text is not None or payload.kind is not None:
-        tokens = tokenize_with_spans(updated["text"])
+        tokens = tokenize_with_spans(strip_page_markers(updated["text"]))
         token_values = [token for token, _, _ in tokens]
         upsert_document_index(
             document_id=updated["id"],
@@ -512,11 +521,15 @@ def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
     if not value:
         raise HTTPException(status_code=400, detail="Rule value must not be empty.")
     rule_type: RuleType = "regex" if payload.value is None and payload.pattern else payload.rule_type
-    compiled_pattern = compile_rule_pattern(rule_type, value)
     try:
-        re.compile(compiled_pattern)
-    except re.error as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
+        compiled_pattern = compile_rule_pattern(rule_type, value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if rule_type != "pages":
+        try:
+            re.compile(compiled_pattern)
+        except re.error as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid regex: {exc}") from exc
     rule = insert_rule(
         name=payload.name.strip(),
         rule_type=rule_type,
@@ -584,8 +597,10 @@ def run_check(payload: CheckRequest) -> CheckOut:
         if payload.owner_user_id:
             assert_user_exists(payload.owner_user_id)
 
-    patterns = [r["pattern"] for r in list_rules()] if payload.use_exclusion_rules else []
-    processed_text = apply_exclusions(source_text, patterns).strip()
+    rules = list_rules() if payload.use_exclusion_rules else []
+    page_ranges = [r["value"] for r in rules if r["rule_type"] == "pages"]
+    patterns = [r["pattern"] for r in rules if r["rule_type"] != "pages"]
+    processed_text = prepare_text_for_analysis(source_text, patterns, page_ranges).strip()
     query_tokens_spans = tokenize_with_spans(processed_text)
     if not query_tokens_spans:
         raise HTTPException(status_code=400, detail="Text has no tokens for analysis.")
@@ -607,7 +622,7 @@ def run_check(payload: CheckRequest) -> CheckOut:
     matches_payload: list[dict] = []
 
     for ref in source_docs:
-        ref_text = apply_exclusions(ref["text"], patterns) if payload.use_exclusion_rules else ref["text"]
+        ref_text = prepare_text_for_analysis(ref["text"], patterns, page_ranges)
         ref_tokens_spans = tokenize_with_spans(ref_text)
         if not ref_tokens_spans:
             continue
