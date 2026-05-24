@@ -4,6 +4,7 @@ const docsBox = document.getElementById("docs");
 const ownerSelect = document.getElementById("doc-owner-select");
 const submissionSelect = document.getElementById("submission-select");
 const uploadForm = document.getElementById("upload-form");
+const loginForm = document.getElementById("login-form");
 const manualForm = document.getElementById("doc-form");
 const existingFields = document.getElementById("existing-check-fields");
 const rawFields = document.getElementById("raw-check-fields");
@@ -14,6 +15,18 @@ const resultSummary = document.getElementById("result-summary");
 const resultMatches = document.getElementById("result-matches");
 const btnEditOriginality = document.getElementById("btn-edit-originality");
 const btnAddArchive = document.getElementById("btn-add-archive");
+const authStatus = document.getElementById("auth-status");
+const profilePanel = document.getElementById("profile-panel");
+const profileSelect = document.getElementById("profile-select");
+const profileForm = document.getElementById("profile-form");
+const btnLogout = document.getElementById("btn-logout");
+const btnRenameProfile = document.getElementById("btn-rename-profile");
+const btnDeleteProfile = document.getElementById("btn-delete-profile");
+const docsBulkToolbar = document.getElementById("docs-bulk-toolbar");
+const docsSelectAll = document.getElementById("docs-select-all");
+const bulkKindSelect = document.getElementById("bulk-kind-select");
+const btnBulkKind = document.getElementById("btn-bulk-kind");
+const btnBulkDelete = document.getElementById("btn-bulk-delete");
 
 const btnOpenResultModal = document.getElementById("btn-open-result-modal");
 const resultModal = document.getElementById("result-modal");
@@ -47,7 +60,11 @@ let currentCheckId = null;
 let currentSubmissionDocumentId = null;
 let editingDocId = null;
 const docsCache = new Map();
+const profileCache = new Map();
 let defaultUniquenessThreshold = 80;
+let authToken = localStorage.getItem("auth_token") || "";
+let currentUser = JSON.parse(localStorage.getItem("current_user") || "null");
+let activeProfileId = localStorage.getItem("active_profile_id") || "";
 
 function show(message) {
   output.textContent = message;
@@ -60,7 +77,11 @@ function parseError(payload) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options.headers || {});
+  if (authToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${authToken}`);
+  }
+  const response = await fetch(path, { ...options, headers });
   let data = null;
   try {
     data = await response.json();
@@ -82,6 +103,67 @@ function clipText(value, limit = 520) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (text.length <= limit) return text;
   return `${text.slice(0, limit - 1).trim()}…`;
+}
+
+function saveAuth(auth) {
+  authToken = auth.token || "";
+  currentUser = auth.user || null;
+  activeProfileId = auth.active_profile_id || (auth.profiles && auth.profiles[0] && auth.profiles[0].id) || "";
+  localStorage.setItem("auth_token", authToken);
+  localStorage.setItem("current_user", JSON.stringify(currentUser));
+  localStorage.setItem("active_profile_id", activeProfileId);
+  renderAuth(auth.profiles || []);
+}
+
+function clearAuth() {
+  authToken = "";
+  currentUser = null;
+  activeProfileId = "";
+  localStorage.removeItem("auth_token");
+  localStorage.removeItem("current_user");
+  localStorage.removeItem("active_profile_id");
+  renderAuth([]);
+}
+
+function renderAuth(profiles = []) {
+  profileCache.clear();
+  if (!currentUser) {
+    authStatus.textContent = "Вы не вошли в систему.";
+    profilePanel.classList.add("hidden");
+    btnLogout.classList.add("hidden");
+    return;
+  }
+
+  authStatus.textContent = `Вход: ${currentUser.full_name} (${roleLabel[currentUser.role] || currentUser.role})`;
+  btnLogout.classList.remove("hidden");
+  profilePanel.classList.remove("hidden");
+  profileSelect.innerHTML = "";
+  profiles.forEach((profile) => {
+    profileCache.set(profile.id, profile);
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.name;
+    profileSelect.appendChild(option);
+  });
+  if (activeProfileId && profiles.some((profile) => profile.id === activeProfileId)) {
+    profileSelect.value = activeProfileId;
+  } else if (profiles[0]) {
+    activeProfileId = profiles[0].id;
+    profileSelect.value = activeProfileId;
+    localStorage.setItem("active_profile_id", activeProfileId);
+  }
+  btnDeleteProfile.disabled = profiles.length <= 1;
+}
+
+async function restoreAuth() {
+  renderAuth([]);
+  if (!authToken) return;
+  try {
+    const auth = await api("/me");
+    saveAuth(auth);
+  } catch (_) {
+    clearAuth();
+  }
 }
 
 function parsePageRanges(value) {
@@ -190,11 +272,7 @@ function validateUploadForm(form) {
   clearFormErrors(form);
   const file = form.elements.file;
   if (!file.files || !file.files.length) {
-    setFieldError(file, "Выберите PDF-файл.");
-    return false;
-  }
-  if (!file.files[0].name.toLowerCase().endsWith(".pdf")) {
-    setFieldError(file, "Допустим только формат PDF.");
+    setFieldError(file, "Выберите один или несколько файлов.");
     return false;
   }
   return true;
@@ -256,6 +334,43 @@ function updateRuleInputHint(form) {
   } else {
     input.placeholder = "Например: Введение";
   }
+}
+
+function selectedDocumentIds() {
+  return [...docsBox.querySelectorAll(".doc-select:checked")]
+    .map((checkbox) => checkbox.value)
+    .filter(Boolean);
+}
+
+function updateDocsSelectionUI() {
+  const checkboxes = [...docsBox.querySelectorAll(".doc-select")];
+  const selected = checkboxes.filter((checkbox) => checkbox.checked);
+  if (docsSelectAll) {
+    docsSelectAll.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
+    docsSelectAll.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+  }
+  const disabled = selected.length === 0;
+  btnBulkKind.disabled = disabled;
+  btnBulkDelete.disabled = disabled;
+}
+
+function duplicateUploadNames(files, title = "") {
+  const existingTitles = new Set(
+    [...docsCache.values()].map((doc) => String(doc.title || "").trim().toLowerCase()),
+  );
+  const selectedNames = files.map((file) => String(file.name || "").trim()).filter(Boolean);
+  const names = files.length === 1 && title.trim()
+    ? [...selectedNames, title.trim()]
+    : selectedNames;
+  const seen = new Set();
+  const duplicates = [];
+
+  names.forEach((name) => {
+    const key = name.toLowerCase();
+    if (existingTitles.has(key) || seen.has(key)) duplicates.push(name);
+    seen.add(key);
+  });
+  return duplicates;
 }
 
 function validateCheckForm(form) {
@@ -347,6 +462,9 @@ async function loadUsers() {
     option.textContent = `${u.full_name} (${roleLabel[u.role] || u.role})`;
     ownerSelect.appendChild(option);
   });
+  if (currentUser && users.some((user) => user.id === currentUser.id)) {
+    ownerSelect.value = currentUser.id;
+  }
 }
 
 async function loadSettings() {
@@ -374,18 +492,27 @@ async function loadDocuments() {
   const docs = await api("/documents");
   docsCache.clear();
   docs.forEach((d) => docsCache.set(d.id, d));
+  docsBulkToolbar.classList.toggle("hidden", !docs.length);
+  if (docsSelectAll) {
+    docsSelectAll.checked = false;
+    docsSelectAll.indeterminate = false;
+  }
 
   if (!docs.length) {
     docsBox.textContent = "Документов пока нет.";
+    updateDocsSelectionUI();
     return;
   }
 
   docsBox.innerHTML = docs
     .map(
       (d) => `<div class="doc-item">
-        <div><strong>${d.title}</strong></div>
-        <div>ID: ${d.id}</div>
-        <div>Категория: ${kindLabel[d.kind] || d.kind}</div>
+        <label class="doc-check-row">
+          <input type="checkbox" class="doc-select" value="${escapeHtml(d.id)}" />
+          <strong>${escapeHtml(d.title)}</strong>
+        </label>
+        <div>ID: ${escapeHtml(d.id)}</div>
+        <div>Категория: ${escapeHtml(kindLabel[d.kind] || d.kind)}</div>
         <div class="actions-row">
           <button type="button" class="ghost" data-doc-edit="${d.id}">Редактировать</button>
           <button type="button" class="danger" data-doc-delete="${d.id}">Удалить</button>
@@ -393,10 +520,12 @@ async function loadDocuments() {
       </div>`,
     )
     .join("");
+  updateDocsSelectionUI();
 }
 
 async function loadRules() {
-  const rules = await api("/rules/exclusions");
+  const query = activeProfileId ? `?profile_id=${encodeURIComponent(activeProfileId)}` : "";
+  const rules = await api(`/rules/exclusions${query}`);
   if (!rules.length) {
     rulesBox.innerHTML = '<p class="muted">Правила не добавлены.</p>';
     return;
@@ -440,6 +569,111 @@ document.getElementById("btn-sync").addEventListener("click", async () => {
   show("Списки обновлены.");
 });
 
+loginForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  clearFormErrors(loginForm);
+  const payload = Object.fromEntries(new FormData(loginForm).entries());
+  try {
+    const auth = await api("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    saveAuth(auth);
+    show(`Вы вошли как ${auth.user.full_name}.`);
+    await refreshAll();
+  } catch (err) {
+    show(`Ошибка входа: ${err.message}`);
+  }
+});
+
+btnLogout.addEventListener("click", async () => {
+  clearAuth();
+  await refreshAll();
+  show("Вы вышли из системы.");
+});
+
+profileSelect.addEventListener("change", async () => {
+  activeProfileId = profileSelect.value;
+  localStorage.setItem("active_profile_id", activeProfileId);
+  await loadRules();
+  show("Профиль правил переключен.");
+});
+
+profileForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  clearFormErrors(profileForm);
+  const name = profileForm.elements.name.value.trim();
+  if (!name) {
+    setFieldError(profileForm.elements.name, "Введите название профиля.");
+    return;
+  }
+  try {
+    const profile = await api("/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const auth = await api("/me");
+    activeProfileId = profile.id;
+    localStorage.setItem("active_profile_id", activeProfileId);
+    saveAuth({ ...auth, active_profile_id: activeProfileId });
+    profileForm.reset();
+    await loadRules();
+    show(`Профиль создан: ${profile.name}`);
+  } catch (err) {
+    show(`Ошибка профиля: ${err.message}`);
+  }
+});
+
+btnRenameProfile.addEventListener("click", async () => {
+  if (!activeProfileId) {
+    show("Сначала выберите профиль.");
+    return;
+  }
+  const currentProfile = profileCache.get(activeProfileId);
+  const raw = prompt("Новое название профиля:", currentProfile ? currentProfile.name : "");
+  if (raw === null) return;
+  const name = raw.trim();
+  if (!name) {
+    show("Название профиля не должно быть пустым.");
+    return;
+  }
+  try {
+    const profile = await api(`/profiles/${activeProfileId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const auth = await api("/me");
+    saveAuth({ ...auth, active_profile_id: profile.id });
+    show(`Профиль переименован: ${profile.name}`);
+  } catch (err) {
+    show(`Ошибка профиля: ${err.message}`);
+  }
+});
+
+btnDeleteProfile.addEventListener("click", async () => {
+  if (!activeProfileId) {
+    show("Сначала выберите профиль.");
+    return;
+  }
+  const currentProfile = profileCache.get(activeProfileId);
+  const name = currentProfile ? currentProfile.name : "выбранный профиль";
+  if (!confirm(`Удалить профиль "${name}" и его правила?`)) return;
+  try {
+    const result = await api(`/profiles/${activeProfileId}`, { method: "DELETE" });
+    const auth = await api("/me");
+    activeProfileId = result.active_profile_id || auth.active_profile_id || "";
+    localStorage.setItem("active_profile_id", activeProfileId);
+    saveAuth({ ...auth, active_profile_id: activeProfileId });
+    await loadRules();
+    show("Профиль удален.");
+  } catch (err) {
+    show(`Ошибка профиля: ${err.message}`);
+  }
+});
+
 document.querySelectorAll('input[name="doc_mode"]').forEach((el) => {
   el.addEventListener("change", updateDocModeUI);
 });
@@ -470,15 +704,16 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
   }
   const payload = Object.fromEntries(new FormData(e.target).entries());
   try {
-    const user = await api("/users", {
+    const auth = await api("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    show(`Пользователь создан: ${user.full_name}`);
+    saveAuth(auth);
+    show(`Пользователь создан: ${auth.user.full_name}`);
     e.target.reset();
     await refreshAll();
-    ownerSelect.value = user.id;
+    ownerSelect.value = auth.user.id;
   } catch (err) {
     show(`Ошибка: ${err.message}`);
   }
@@ -487,18 +722,36 @@ document.getElementById("user-form").addEventListener("submit", async (e) => {
 uploadForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!validateUploadForm(uploadForm)) {
-    show("Проверьте форму загрузки PDF.");
+    show("Проверьте форму загрузки файлов.");
     return;
   }
-  const form = new FormData(uploadForm);
-  if (!form.get("title")) form.delete("title");
+  const files = [...uploadForm.elements.file.files];
   const owner = ownerSelect.value;
-  if (owner) form.set("owner_user_id", owner);
-  else form.delete("owner_user_id");
+  const kind = uploadForm.elements.kind.value;
+  const duplicateNames = duplicateUploadNames(files, uploadForm.elements.title.value || "");
+  if (duplicateNames.length) {
+    show(`Файл уже существует: ${duplicateNames.join(", ")}`);
+    setFieldError(uploadForm.elements.file, "Файл с таким именем уже есть в списке документов.");
+    return;
+  }
 
   try {
-    const doc = await api("/documents/upload", { method: "POST", body: form });
-    show(`Документ сохранен: ${doc.title}`);
+    if (files.length === 1) {
+      const form = new FormData(uploadForm);
+      if (!form.get("title")) form.delete("title");
+      if (owner) form.set("owner_user_id", owner);
+      else form.delete("owner_user_id");
+      const doc = await api("/documents/upload", { method: "POST", body: form });
+      show(`Документ сохранен: ${doc.title}`);
+    } else {
+      const form = new FormData();
+      files.forEach((file) => form.append("files", file));
+      form.set("kind", kind);
+      if (owner) form.set("owner_user_id", owner);
+      const result = await api("/documents/upload/batch", { method: "POST", body: form });
+      show(`Массовая загрузка: сохранено ${result.saved} из ${result.total}, ошибок ${result.failed}.`);
+    }
+    uploadForm.reset();
     await refreshAll();
   } catch (err) {
     show(`Ошибка: ${err.message}`);
@@ -537,6 +790,8 @@ document.getElementById("rule-form").addEventListener("submit", async (e) => {
   }
   const payload = Object.fromEntries(new FormData(e.target).entries());
   if (!payload.description) delete payload.description;
+  if (currentUser) payload.owner_user_id = currentUser.id;
+  if (activeProfileId) payload.profile_id = activeProfileId;
 
   try {
     await api("/rules/exclusions", {
@@ -594,6 +849,57 @@ docsBox.addEventListener("click", async (e) => {
     } catch (err) {
       show(`Ошибка: ${err.message}`);
     }
+  }
+});
+
+docsBox.addEventListener("change", (e) => {
+  if (e.target.classList.contains("doc-select")) updateDocsSelectionUI();
+});
+
+docsSelectAll.addEventListener("change", () => {
+  docsBox.querySelectorAll(".doc-select").forEach((checkbox) => {
+    checkbox.checked = docsSelectAll.checked;
+  });
+  updateDocsSelectionUI();
+});
+
+btnBulkKind.addEventListener("click", async () => {
+  const ids = selectedDocumentIds();
+  if (!ids.length) {
+    show("Выберите документы.");
+    return;
+  }
+  const kind = bulkKindSelect.value;
+  try {
+    await Promise.all(
+      ids.map((id) =>
+        api(`/documents/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kind }),
+        }),
+      ),
+    );
+    show(`Тип обновлен у документов: ${ids.length}.`);
+    await refreshAll();
+  } catch (err) {
+    show(`Ошибка массового изменения: ${err.message}`);
+  }
+});
+
+btnBulkDelete.addEventListener("click", async () => {
+  const ids = selectedDocumentIds();
+  if (!ids.length) {
+    show("Выберите документы.");
+    return;
+  }
+  if (!confirm(`Удалить выбранные документы: ${ids.length}? Действие необратимо.`)) return;
+  try {
+    await Promise.all(ids.map((id) => api(`/documents/${id}`, { method: "DELETE" })));
+    show(`Удалено документов: ${ids.length}.`);
+    await refreshAll();
+  } catch (err) {
+    show(`Ошибка массового удаления: ${err.message}`);
   }
 });
 
@@ -673,6 +979,8 @@ document.getElementById("check-form").addEventListener("submit", async (e) => {
     use_exclusion_rules: form.get("use_exclusion_rules") === "on",
     uniqueness_threshold: Number(form.get("uniqueness_threshold") || defaultUniquenessThreshold),
   };
+  if (currentUser) payload.owner_user_id = currentUser.id;
+  if (activeProfileId) payload.profile_id = activeProfileId;
 
   if (mode === "existing") {
     payload.submission_document_id = form.get("submission_document_id");
@@ -766,7 +1074,9 @@ btnAddArchive.addEventListener("click", async () => {
 
 updateDocModeUI();
 updateCheckModeUI();
+watchFieldValidation(loginForm);
 watchFieldValidation(document.getElementById("user-form"));
+watchFieldValidation(profileForm);
 watchFieldValidation(uploadForm);
 watchFieldValidation(manualForm);
 watchFieldValidation(document.getElementById("rule-form"));
@@ -775,5 +1085,9 @@ watchFieldValidation(docEditForm);
 const ruleForm = document.getElementById("rule-form");
 ruleForm.elements.rule_type.addEventListener("change", () => updateRuleInputHint(ruleForm));
 updateRuleInputHint(ruleForm);
-refreshAll();
-document.getElementById("btn-health").click();
+
+(async () => {
+  await restoreAuth();
+  await refreshAll();
+  document.getElementById("btn-health").click();
+})();

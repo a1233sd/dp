@@ -155,6 +155,11 @@ def row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row)
 
 
+def sqlite_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {row["name"] for row in rows}
+
+
 def init_sqlite_schema() -> None:
     with sqlite_connect() as conn:
         conn.executescript(
@@ -168,6 +173,22 @@ def init_sqlite_schema() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(user_id, name),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS exclusion_rules (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -175,6 +196,8 @@ def init_sqlite_schema() -> None:
                 value TEXT NOT NULL DEFAULT '',
                 pattern TEXT NOT NULL,
                 description TEXT,
+                owner_user_id TEXT,
+                profile_id TEXT,
                 created_at TEXT NOT NULL
             );
 
@@ -228,6 +251,11 @@ def init_sqlite_schema() -> None:
             );
             """
         )
+        rule_columns = sqlite_table_columns(conn, "exclusion_rules")
+        if "owner_user_id" not in rule_columns:
+            conn.execute("ALTER TABLE exclusion_rules ADD COLUMN owner_user_id TEXT")
+        if "profile_id" not in rule_columns:
+            conn.execute("ALTER TABLE exclusion_rules ADD COLUMN profile_id TEXT")
 
 
 @contextmanager
@@ -278,6 +306,8 @@ def reset_db() -> None:
                 "document_indexes",
                 "documents",
                 "exclusion_rules",
+                "user_sessions",
+                "user_profiles",
                 "users",
             ):
                 conn.execute(f"DELETE FROM {table}")
@@ -290,6 +320,8 @@ def reset_db() -> None:
                 document_indexes,
                 documents,
                 exclusion_rules,
+                user_sessions,
+                user_profiles,
                 users
             RESTART IDENTITY CASCADE
             """
@@ -345,6 +377,14 @@ def insert_user(full_name: str, email: str, role: str, password_hash: str) -> di
     }
 
 
+def get_user_by_email(email: str) -> dict[str, Any] | None:
+    row = fetch_one(
+        "SELECT * FROM users WHERE email = %s",
+        (email.lower(),),
+    )
+    return dict(row) if row else None
+
+
 def list_users() -> list[dict[str, Any]]:
     rows = fetch_all(
         "SELECT id, full_name, email, role, created_at FROM users ORDER BY created_at DESC"
@@ -360,21 +400,116 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def insert_user_profile(user_id: str, name: str) -> dict[str, Any]:
+    profile_id = new_id()
+    created_at = utc_now_iso()
+    execute(
+        """
+        INSERT INTO user_profiles (id, user_id, name, created_at)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (profile_id, user_id, name, created_at),
+    )
+    return get_user_profile(profile_id)  # type: ignore[return-value]
+
+
+def ensure_default_profile(user_id: str) -> dict[str, Any]:
+    profiles = list_user_profiles(user_id)
+    if profiles:
+        return profiles[0]
+    return insert_user_profile(user_id, "Основной")
+
+
+def get_user_profile(profile_id: str) -> dict[str, Any] | None:
+    row = fetch_one("SELECT * FROM user_profiles WHERE id = %s", (profile_id,))
+    return dict(row) if row else None
+
+
+def update_user_profile_name(profile_id: str, user_id: str, name: str) -> dict[str, Any] | None:
+    profile = fetch_one(
+        "SELECT id FROM user_profiles WHERE id = %s AND user_id = %s",
+        (profile_id, user_id),
+    )
+    if not profile:
+        return None
+    execute(
+        "UPDATE user_profiles SET name = %s WHERE id = %s AND user_id = %s",
+        (name, profile_id, user_id),
+    )
+    return get_user_profile(profile_id)
+
+
+def delete_user_profile(profile_id: str, user_id: str) -> bool:
+    profile = fetch_one(
+        "SELECT id FROM user_profiles WHERE id = %s AND user_id = %s",
+        (profile_id, user_id),
+    )
+    if not profile:
+        return False
+    execute("DELETE FROM exclusion_rules WHERE profile_id = %s", (profile_id,))
+    execute(
+        "DELETE FROM user_profiles WHERE id = %s AND user_id = %s",
+        (profile_id, user_id),
+    )
+    return True
+
+
+def list_user_profiles(user_id: str) -> list[dict[str, Any]]:
+    rows = fetch_all(
+        "SELECT * FROM user_profiles WHERE user_id = %s ORDER BY created_at ASC",
+        (user_id,),
+    )
+    return [dict(row) for row in rows]
+
+
+def insert_user_session(user_id: str, token_hash: str) -> dict[str, Any]:
+    created_at = utc_now_iso()
+    execute(
+        """
+        INSERT INTO user_sessions (token_hash, user_id, created_at)
+        VALUES (%s, %s, %s)
+        """,
+        (token_hash, user_id, created_at),
+    )
+    return {
+        "token_hash": token_hash,
+        "user_id": user_id,
+        "created_at": created_at,
+    }
+
+
+def get_user_by_session_token_hash(token_hash: str) -> dict[str, Any] | None:
+    row = fetch_one(
+        """
+        SELECT u.id, u.full_name, u.email, u.role, u.created_at
+        FROM user_sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = %s
+        """,
+        (token_hash,),
+    )
+    return dict(row) if row else None
+
+
 def insert_rule(
     name: str,
     rule_type: str,
     value: str,
     pattern: str,
     description: str | None,
+    owner_user_id: str | None = None,
+    profile_id: str | None = None,
 ) -> dict[str, Any]:
     rule_id = new_id()
     created_at = utc_now_iso()
     execute(
         """
-        INSERT INTO exclusion_rules (id, name, rule_type, value, pattern, description, created_at)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO exclusion_rules (
+            id, name, rule_type, value, pattern, description, owner_user_id, profile_id, created_at
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (rule_id, name, rule_type, value, pattern, description, created_at),
+        (rule_id, name, rule_type, value, pattern, description, owner_user_id, profile_id, created_at),
     )
     return {
         "id": rule_id,
@@ -383,17 +518,54 @@ def insert_rule(
         "value": value,
         "pattern": pattern,
         "description": description,
+        "owner_user_id": owner_user_id,
+        "profile_id": profile_id,
         "created_at": created_at,
     }
 
 
-def list_rules() -> list[dict[str, Any]]:
-    rows = fetch_all("SELECT * FROM exclusion_rules ORDER BY created_at DESC")
+def list_rules(
+    owner_user_id: str | None = None,
+    profile_id: str | None = None,
+    include_global: bool = True,
+) -> list[dict[str, Any]]:
+    query = "SELECT * FROM exclusion_rules"
+    params: list[Any] = []
+    filters: list[str] = []
+
+    if owner_user_id:
+        owned_filter = "owner_user_id = %s"
+        params.append(owner_user_id)
+        if profile_id:
+            owned_filter += " AND (profile_id IS NULL OR profile_id = %s)"
+            params.append(profile_id)
+        if include_global:
+            filters.append(f"(owner_user_id IS NULL OR ({owned_filter}))")
+        else:
+            filters.append(f"({owned_filter})")
+    elif include_global:
+        filters.append("owner_user_id IS NULL")
+
+    if filters:
+        query += " WHERE " + " AND ".join(filters)
+    query += " ORDER BY created_at DESC"
+    rows = fetch_all(query, tuple(params))
     return [dict(row) for row in rows]
 
 
-def delete_rule(rule_id: str) -> bool:
-    before = fetch_one("SELECT id FROM exclusion_rules WHERE id = %s", (rule_id,))
+def delete_rule(
+    rule_id: str,
+    owner_user_id: str | None = None,
+    global_only: bool = False,
+) -> bool:
+    query = "SELECT id FROM exclusion_rules WHERE id = %s"
+    params: list[Any] = [rule_id]
+    if owner_user_id:
+        query += " AND owner_user_id = %s"
+        params.append(owner_user_id)
+    elif global_only:
+        query += " AND owner_user_id IS NULL"
+    before = fetch_one(query, tuple(params))
     if not before:
         return False
     execute("DELETE FROM exclusion_rules WHERE id = %s", (rule_id,))

@@ -4,11 +4,12 @@ import hashlib
 import logging
 import os
 import re
+import secrets
 from collections import Counter
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -28,27 +29,36 @@ from .plagiarism import (
 from .storage import (
     delete_document_by_id,
     delete_rule,
+    ensure_default_profile,
     get_check,
     get_check_matches,
     get_document,
     get_document_index,
     get_user,
+    get_user_by_email,
+    get_user_by_session_token_hash,
+    get_user_profile,
     init_db,
     insert_check,
     insert_check_matches,
     insert_document,
     insert_rule,
     insert_user,
+    insert_user_profile,
+    insert_user_session,
     list_archive_unique,
     list_documents,
     list_reference_candidates,
     list_rules,
+    list_user_profiles,
     list_users,
     mark_document_unique,
     promote_document_to_unique_reference,
+    delete_user_profile,
     update_document_fields,
     upsert_document_index,
     update_check_originality,
+    update_user_profile_name,
 )
 
 DocumentKind = Literal["reference", "submission"]
@@ -93,12 +103,39 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=6, max_length=200)
 
 
+class UserLogin(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=6, max_length=200)
+
+
 class UserOut(BaseModel):
     id: str
     full_name: str
     email: str
     role: UserRole
     created_at: str
+
+
+class UserProfileCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class UserProfileUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
+class UserProfileOut(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    created_at: str
+
+
+class AuthOut(BaseModel):
+    token: str
+    user: UserOut
+    profiles: list[UserProfileOut]
+    active_profile_id: str | None = None
 
 
 class DocumentCreate(BaseModel):
@@ -132,6 +169,8 @@ class ExclusionRuleCreate(BaseModel):
     # Backward compatibility for old clients.
     pattern: str | None = Field(default=None, min_length=1)
     description: str | None = None
+    owner_user_id: str | None = None
+    profile_id: str | None = None
 
 
 class ExclusionRuleOut(BaseModel):
@@ -141,6 +180,8 @@ class ExclusionRuleOut(BaseModel):
     value: str
     pattern: str
     description: str | None
+    owner_user_id: str | None = None
+    profile_id: str | None = None
     created_at: str
 
 
@@ -150,6 +191,7 @@ class CheckRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     owner_user_id: str | None = None
     reference_ids: list[str] | None = None
+    profile_id: str | None = None
     include_unique_archive: bool = True
     use_exclusion_rules: bool = True
     uniqueness_threshold: float = Field(default=DEFAULT_UNIQUENESS_THRESHOLD, ge=0.0, le=100.0)
@@ -183,6 +225,20 @@ class CheckReportOut(BaseModel):
     check: CheckOut
     summary: dict[str, float | int]
     by_source_kind: dict[str, int]
+
+
+class BatchUploadItem(BaseModel):
+    filename: str
+    status: Literal["saved", "failed"]
+    document: DocumentOut | None = None
+    error: str | None = None
+
+
+class BatchUploadOut(BaseModel):
+    total: int
+    saved: int
+    failed: int
+    items: list[BatchUploadItem]
 
 
 class ArchiveItem(BaseModel):
@@ -228,9 +284,52 @@ def password_hash(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def token_hash(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def create_auth_token(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    insert_user_session(user_id=user_id, token_hash=token_hash(token))
+    return token
+
+
+def bearer_token(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return None
+    return token.strip()
+
+
+def optional_current_user(authorization: str | None) -> dict | None:
+    token = bearer_token(authorization)
+    if not token:
+        return None
+    return get_user_by_session_token_hash(token_hash(token))
+
+
+def require_current_user(authorization: str | None) -> dict:
+    user = optional_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    return user
+
+
 def assert_user_exists(user_id: str | None) -> None:
     if user_id and not get_user(user_id):
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found.")
+
+
+def assert_profile_belongs_to_user(profile_id: str | None, user_id: str | None) -> None:
+    if not profile_id:
+        return
+    profile = get_user_profile(profile_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"Profile '{profile_id}' not found.")
+    if user_id and profile["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Profile belongs to another user.")
 
 
 def document_out_from_row(row: dict) -> DocumentOut:
@@ -256,6 +355,51 @@ def compile_rule_pattern(rule_type: RuleType, value: str) -> str:
     if rule_type == "starts_with":
         return rf"(?im)^\s*{escaped}.*(?:\n|$)"
     return value
+
+
+def auth_out_for_user(user: dict, token: str) -> AuthOut:
+    profile = ensure_default_profile(user["id"])
+    profiles = list_user_profiles(user["id"])
+    return AuthOut(
+        token=token,
+        user=UserOut(**user),
+        profiles=[UserProfileOut(**row) for row in profiles],
+        active_profile_id=profile["id"],
+    )
+
+
+def index_document(row: dict) -> None:
+    tokens = tokenize_with_spans(strip_page_markers(row["text"]))
+    token_values = [token for token, _, _ in tokens]
+    upsert_document_index(
+        document_id=row["id"],
+        shingle_size=SHINGLE_SIZE,
+        token_count=len(token_values),
+        shingles=shingle_hashes(token_values, SHINGLE_SIZE),
+    )
+
+
+def create_document_from_text(
+    title: str,
+    text: str,
+    kind: DocumentKind,
+    owner_user_id: str | None = None,
+) -> DocumentOut:
+    assert_user_exists(owner_user_id)
+    body = text.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Document text is empty.")
+    row = insert_document(
+        title=title.strip(),
+        text=body,
+        kind=kind,
+        owner_user_id=owner_user_id,
+    )
+    index_document(row)
+    if row["kind"] == "reference":
+        promote_document_to_unique_reference(row["id"])
+        row = get_document(row["id"]) or row
+    return document_out_from_row(row)
 
 
 def check_out_from_db(check_id: str) -> CheckOut:
@@ -310,9 +454,139 @@ def create_user(payload: UserCreate) -> UserOut:
             role=payload.role,
             password_hash=password_hash(payload.password),
         )
+        ensure_default_profile(user["id"])
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Could not create user: {exc}") from exc
     return UserOut(**user)
+
+
+@app.post(
+    "/auth/register",
+    response_model=AuthOut,
+    tags=["auth"],
+    summary="Зарегистрироваться и войти",
+    description="Создает пользователя, заводит основной профиль правил и возвращает токен сессии.",
+)
+def register(payload: UserCreate) -> AuthOut:
+    created_user = create_user(payload)
+    user = (
+        created_user.model_dump()
+        if hasattr(created_user, "model_dump")
+        else created_user.dict()
+    )
+    token = create_auth_token(user["id"])
+    return auth_out_for_user(user, token)
+
+
+@app.post(
+    "/auth/login",
+    response_model=AuthOut,
+    tags=["auth"],
+    summary="Войти",
+    description="Проверяет email и пароль, затем возвращает токен сессии и профили пользователя.",
+)
+def login(payload: UserLogin) -> AuthOut:
+    user = get_user_by_email(payload.email.strip())
+    if not user or user.get("password_hash") != password_hash(payload.password):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    token = create_auth_token(user["id"])
+    return auth_out_for_user(user, token)
+
+
+@app.get(
+    "/me",
+    response_model=AuthOut,
+    tags=["auth"],
+    summary="Получить текущую сессию",
+    description="Возвращает пользователя и его профили по Bearer-токену.",
+)
+def get_me(authorization: str | None = Header(default=None)) -> AuthOut:
+    user = require_current_user(authorization)
+    return auth_out_for_user(user, bearer_token(authorization) or "")
+
+
+@app.get(
+    "/profiles",
+    response_model=list[UserProfileOut],
+    tags=["auth"],
+    summary="Получить профили текущего пользователя",
+)
+def get_profiles(authorization: str | None = Header(default=None)) -> list[UserProfileOut]:
+    user = require_current_user(authorization)
+    ensure_default_profile(user["id"])
+    return [UserProfileOut(**row) for row in list_user_profiles(user["id"])]
+
+
+@app.post(
+    "/profiles",
+    response_model=UserProfileOut,
+    tags=["auth"],
+    summary="Создать профиль правил",
+)
+def create_profile(
+    payload: UserProfileCreate,
+    authorization: str | None = Header(default=None),
+) -> UserProfileOut:
+    user = require_current_user(authorization)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name cannot be empty.")
+    try:
+        profile = insert_user_profile(user_id=user["id"], name=name)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not create profile: {exc}") from exc
+    return UserProfileOut(**profile)
+
+
+@app.patch(
+    "/profiles/{profile_id}",
+    response_model=UserProfileOut,
+    tags=["auth"],
+    summary="Переименовать профиль правил",
+)
+def patch_profile(
+    profile_id: str,
+    payload: UserProfileUpdate,
+    authorization: str | None = Header(default=None),
+) -> UserProfileOut:
+    user = require_current_user(authorization)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Profile name cannot be empty.")
+    try:
+        profile = update_user_profile_name(
+            profile_id=profile_id,
+            user_id=user["id"],
+            name=name,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not update profile: {exc}") from exc
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    return UserProfileOut(**profile)
+
+
+@app.delete(
+    "/profiles/{profile_id}",
+    tags=["auth"],
+    summary="Удалить профиль правил",
+)
+def remove_profile(
+    profile_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    user = require_current_user(authorization)
+    profiles = list_user_profiles(user["id"])
+    if len(profiles) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last profile.")
+    if not delete_user_profile(profile_id=profile_id, user_id=user["id"]):
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    active_profile = ensure_default_profile(user["id"])
+    return {
+        "status": "deleted",
+        "profile_id": profile_id,
+        "active_profile_id": active_profile["id"],
+    }
 
 
 @app.get(
@@ -337,37 +611,23 @@ def get_users() -> list[UserOut]:
     ),
 )
 def create_document(payload: DocumentCreate) -> DocumentOut:
-    assert_user_exists(payload.owner_user_id)
-    row = insert_document(
-        title=payload.title.strip(),
-        text=payload.text.strip(),
+    return create_document_from_text(
+        title=payload.title,
+        text=payload.text,
         kind=payload.kind,
         owner_user_id=payload.owner_user_id,
     )
-    if not row["text"]:
-        raise HTTPException(status_code=400, detail="Document text is empty.")
-    tokens = tokenize_with_spans(strip_page_markers(row["text"]))
-    token_values = [token for token, _, _ in tokens]
-    upsert_document_index(
-        document_id=row["id"],
-        shingle_size=SHINGLE_SIZE,
-        token_count=len(token_values),
-        shingles=shingle_hashes(token_values, SHINGLE_SIZE),
-    )
-    if row["kind"] == "reference":
-        promote_document_to_unique_reference(row["id"])
-        row = get_document(row["id"]) or row
-    return document_out_from_row(row)
 
 
 @app.post(
     "/documents/upload",
     response_model=DocumentOut,
     tags=["documents"],
-    summary="Загрузить PDF-документ",
+    summary="Загрузить документ",
     description=(
-        "Извлекает текст из PDF и сохраняет документ. Подходит для загрузки проверяемых работ "
-        "и эталонных документов без ручного копирования текста."
+        "Извлекает текст из PDF, DOCX, презентаций, текстовых файлов или другого текстового "
+        "загружаемого файла и сохраняет документ. Для офисных форматов приложение сначала "
+        "пытается конвертировать файл в PDF через LibreOffice, если он установлен."
     ),
 )
 async def upload_document(
@@ -376,26 +636,53 @@ async def upload_document(
     kind: DocumentKind = Form(default="submission"),
     owner_user_id: str | None = Form(default=None),
 ) -> DocumentOut:
-    assert_user_exists(owner_user_id)
     body = await extract_text_from_upload(file)
-    row = insert_document(
+    return create_document_from_text(
         title=(title or file.filename or "uploaded-document").strip(),
         text=body,
         kind=kind,
         owner_user_id=owner_user_id,
     )
-    tokens = tokenize_with_spans(strip_page_markers(row["text"]))
-    token_values = [token for token, _, _ in tokens]
-    upsert_document_index(
-        document_id=row["id"],
-        shingle_size=SHINGLE_SIZE,
-        token_count=len(token_values),
-        shingles=shingle_hashes(token_values, SHINGLE_SIZE),
-    )
-    if row["kind"] == "reference":
-        promote_document_to_unique_reference(row["id"])
-        row = get_document(row["id"]) or row
-    return document_out_from_row(row)
+
+
+@app.post(
+    "/documents/upload/batch",
+    response_model=BatchUploadOut,
+    tags=["documents"],
+    summary="Массово загрузить документы",
+    description=(
+        "Принимает много файлов за один запрос. Каждый файл обрабатывается независимо: "
+        "успешные документы сохраняются, а ошибки возвращаются по конкретным файлам."
+    ),
+)
+async def upload_documents_batch(
+    files: list[UploadFile] = File(...),
+    kind: DocumentKind = Form(default="submission"),
+    owner_user_id: str | None = Form(default=None),
+) -> BatchUploadOut:
+    assert_user_exists(owner_user_id)
+    items: list[BatchUploadItem] = []
+
+    for file in files:
+        filename = file.filename or "uploaded-document"
+        try:
+            body = await extract_text_from_upload(file)
+            document = create_document_from_text(
+                title=filename,
+                text=body,
+                kind=kind,
+                owner_user_id=owner_user_id,
+            )
+            items.append(BatchUploadItem(filename=filename, status="saved", document=document))
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            items.append(BatchUploadItem(filename=filename, status="failed", error=detail))
+        except Exception as exc:
+            logger.exception("Failed to upload file %s", filename)
+            items.append(BatchUploadItem(filename=filename, status="failed", error=str(exc)))
+
+    saved = sum(1 for item in items if item.status == "saved")
+    return BatchUploadOut(total=len(items), saved=saved, failed=len(items) - saved, items=items)
 
 
 @app.get(
@@ -516,7 +803,14 @@ def get_unique_archive() -> list[ArchiveItem]:
         "Можно использовать точную фразу, условие по строке или regex."
     ),
 )
-def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
+def create_exclusion_rule(
+    payload: ExclusionRuleCreate,
+    authorization: str | None = Header(default=None),
+) -> ExclusionRuleOut:
+    current_user = optional_current_user(authorization)
+    owner_user_id = current_user["id"] if current_user else payload.owner_user_id
+    assert_user_exists(owner_user_id)
+    assert_profile_belongs_to_user(payload.profile_id, owner_user_id)
     value = (payload.value or payload.pattern or "").strip()
     if not value:
         raise HTTPException(status_code=400, detail="Rule value must not be empty.")
@@ -536,6 +830,8 @@ def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
         value=value,
         pattern=compiled_pattern,
         description=payload.description,
+        owner_user_id=owner_user_id,
+        profile_id=payload.profile_id,
     )
     return ExclusionRuleOut(**rule)
 
@@ -547,8 +843,16 @@ def create_exclusion_rule(payload: ExclusionRuleCreate) -> ExclusionRuleOut:
     summary="Получить список правил исключения",
     description="Возвращает все правила исключения, которые применяются при проверке текста.",
 )
-def get_exclusion_rules() -> list[ExclusionRuleOut]:
-    return [ExclusionRuleOut(**row) for row in list_rules()]
+def get_exclusion_rules(
+    profile_id: str | None = None,
+    authorization: str | None = Header(default=None),
+) -> list[ExclusionRuleOut]:
+    current_user = optional_current_user(authorization)
+    owner_user_id = current_user["id"] if current_user else None
+    if current_user:
+        assert_profile_belongs_to_user(profile_id, owner_user_id)
+    rows = list_rules(owner_user_id=owner_user_id, profile_id=profile_id, include_global=True)
+    return [ExclusionRuleOut(**row) for row in rows]
 
 
 @app.delete(
@@ -557,8 +861,16 @@ def get_exclusion_rules() -> list[ExclusionRuleOut]:
     summary="Удалить правило исключения",
     description="Удаляет правило исключения по его идентификатору.",
 )
-def remove_exclusion_rule(rule_id: str) -> dict[str, str]:
-    if not delete_rule(rule_id):
+def remove_exclusion_rule(
+    rule_id: str,
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    current_user = optional_current_user(authorization)
+    if current_user:
+        deleted = delete_rule(rule_id, owner_user_id=current_user["id"])
+    else:
+        deleted = delete_rule(rule_id, global_only=True)
+    if not deleted:
         raise HTTPException(status_code=404, detail="Rule not found.")
     return {"status": "deleted"}
 
@@ -573,7 +885,17 @@ def remove_exclusion_rule(rule_id: str) -> dict[str, str]:
         "В ответе сразу возвращает процент оригинальности, совпадения и HTML с подсветкой."
     ),
 )
-def run_check(payload: CheckRequest) -> CheckOut:
+def run_check(
+    payload: CheckRequest,
+    authorization: str | None = Header(default=None),
+) -> CheckOut:
+    current_user = optional_current_user(authorization)
+    active_owner_user_id = payload.owner_user_id or (current_user["id"] if current_user else None)
+    if active_owner_user_id:
+        assert_user_exists(active_owner_user_id)
+    if payload.profile_id:
+        assert_profile_belongs_to_user(payload.profile_id, active_owner_user_id)
+
     submission_doc = None
     if payload.submission_document_id:
         submission_doc = get_document(payload.submission_document_id)
@@ -594,10 +916,16 @@ def run_check(payload: CheckRequest) -> CheckOut:
                 detail="Provide submission_document_id or raw text for analysis.",
             )
         source_text = payload.text
-        if payload.owner_user_id:
-            assert_user_exists(payload.owner_user_id)
 
-    rules = list_rules() if payload.use_exclusion_rules else []
+    rules = (
+        list_rules(
+            owner_user_id=active_owner_user_id,
+            profile_id=payload.profile_id,
+            include_global=True,
+        )
+        if payload.use_exclusion_rules
+        else []
+    )
     page_ranges = [r["value"] for r in rules if r["rule_type"] == "pages"]
     patterns = [r["pattern"] for r in rules if r["rule_type"] != "pages"]
     processed_text = prepare_text_for_analysis(source_text, patterns, page_ranges).strip()

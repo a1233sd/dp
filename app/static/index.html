@@ -32,17 +32,41 @@
 
       <div class="grid two">
         <section class="card">
-          <h2>1) Пользователи</h2>
-          <form id="user-form">
-            <input name="full_name" placeholder="ФИО" required />
+          <h2>1) Вход и профили</h2>
+          <div id="auth-status" class="auth-status">Вы не вошли в систему.</div>
+          <form id="login-form">
             <input name="email" placeholder="Электронная почта" required />
-            <select name="role">
-              <option value="student">Студент</option>
-              <option value="teacher">Преподаватель</option>
-            </select>
             <input type="password" name="password" placeholder="Пароль" required />
-            <button type="submit">Создать пользователя</button>
+            <div class="actions-row">
+              <button type="submit">Войти</button>
+              <button id="btn-logout" type="button" class="ghost hidden">Выйти</button>
+            </div>
           </form>
+          <details>
+            <summary>Регистрация</summary>
+            <form id="user-form" class="stacked-form">
+              <input name="full_name" placeholder="ФИО" required />
+              <input name="email" placeholder="Электронная почта" required />
+              <select name="role">
+                <option value="student">Студент</option>
+                <option value="teacher">Преподаватель</option>
+              </select>
+              <input type="password" name="password" placeholder="Пароль" required />
+              <button type="submit">Зарегистрироваться</button>
+            </form>
+          </details>
+          <div id="profile-panel" class="profile-panel hidden">
+            <label for="profile-select">Профиль правил</label>
+            <select id="profile-select"></select>
+            <div class="actions-row">
+              <button id="btn-rename-profile" type="button" class="ghost">Переименовать</button>
+              <button id="btn-delete-profile" type="button" class="danger">Удалить профиль</button>
+            </div>
+            <form id="profile-form" class="profile-create">
+              <input name="name" placeholder="Новый профиль" required />
+              <button type="submit">Создать профиль</button>
+            </form>
+          </div>
         </section>
 
         <section class="card">
@@ -53,7 +77,7 @@
           </select>
 
           <div class="inline">
-            <label><input type="radio" name="doc_mode" value="pdf" checked /> Загрузка PDF</label>
+            <label><input type="radio" name="doc_mode" value="pdf" checked /> Загрузка файлов</label>
             <label><input type="radio" name="doc_mode" value="manual" /> Ввод вручную</label>
           </div>
 
@@ -63,8 +87,8 @@
               <option value="submission">Проверяемая работа</option>
               <option value="reference">Уникальный документ</option>
             </select>
-            <input type="file" name="file" accept=".pdf" required />
-            <button type="submit">Загрузить PDF</button>
+            <input type="file" name="file" accept=".pdf,.docx,.pptx,.txt,.md,.csv,.rtf,.log" multiple required />
+            <button type="submit">Загрузить файлы</button>
           </form>
 
           <form id="doc-form" class="mode-form hidden">
@@ -138,6 +162,15 @@
       <div class="grid two">
         <section class="card">
           <h2>Документы</h2>
+          <div id="docs-bulk-toolbar" class="bulk-toolbar hidden">
+            <label class="select-all-row"><input id="docs-select-all" type="checkbox" /> Выбрать все</label>
+            <select id="bulk-kind-select">
+              <option value="submission">Проверяемая работа</option>
+              <option value="reference">Уникальный документ</option>
+            </select>
+            <button id="btn-bulk-kind" type="button" class="ghost">Изменить тип выбранных</button>
+            <button id="btn-bulk-delete" type="button" class="danger">Удалить выбранные</button>
+          </div>
           <div id="docs"></div>
         </section>
 
