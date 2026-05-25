@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import secrets
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Literal
 
@@ -94,6 +94,7 @@ def read_percent_env(name: str, default: float) -> float:
 
 
 DEFAULT_UNIQUENESS_THRESHOLD = read_percent_env("DEFAULT_UNIQUENESS_THRESHOLD", 80.0)
+MATCH_TOKEN_GAP = SHINGLE_SIZE - 1
 
 
 class UserCreate(BaseModel):
@@ -422,6 +423,66 @@ def check_out_from_db(check_id: str) -> CheckOut:
         checked_at=row["checked_at"],
         matches=[MatchOut(**m) for m in matches],
     )
+
+
+def shingle_positions_by_hash(
+    tokens: list[str],
+    size: int,
+    allowed_hashes: set[str] | None = None,
+) -> dict[str, list[int]]:
+    positions: dict[str, list[int]] = defaultdict(list)
+    for index, shingle in enumerate(make_shingles(tokens, size)):
+        shingle_hash = hash_shingle(shingle)
+        if allowed_hashes is None or shingle_hash in allowed_hashes:
+            positions[shingle_hash].append(index)
+    return positions
+
+
+def token_intervals_from_positions(
+    positions: set[int],
+    max_gap: int = MATCH_TOKEN_GAP,
+) -> list[tuple[int, int]]:
+    ordered = sorted(positions)
+    if not ordered:
+        return []
+
+    intervals: list[tuple[int, int]] = []
+    start = previous = ordered[0]
+    for position in ordered[1:]:
+        if position - previous - 1 <= max_gap:
+            previous = position
+            continue
+        intervals.append((start, previous))
+        start = previous = position
+    intervals.append((start, previous))
+    return intervals
+
+
+def token_interval_to_char_span(
+    token_spans: list[tuple[str, int, int]],
+    interval: tuple[int, int],
+) -> tuple[int, int]:
+    start_token, end_token = interval
+    return token_spans[start_token][1], token_spans[end_token][2]
+
+
+def pick_source_interval(
+    source_positions: set[int],
+    query_interval: tuple[int, int],
+) -> tuple[int, int] | None:
+    intervals = token_intervals_from_positions(source_positions)
+    if not intervals:
+        return None
+
+    query_len = query_interval[1] - query_interval[0] + 1
+
+    def score(interval: tuple[int, int]) -> tuple[int, int, int]:
+        start, end = interval
+        covered = sum(1 for position in source_positions if start <= position <= end)
+        length = end - start + 1
+        return covered, -abs(length - query_len), -length
+
+    return max(intervals, key=score)
 
 
 @app.get("/health", tags=["system"], include_in_schema=False)
@@ -952,8 +1013,8 @@ def run_check(
         raise HTTPException(status_code=400, detail="Text has no tokens for analysis.")
 
     query_tokens = [token for token, _, _ in query_tokens_spans]
-    query_shingles = make_shingles(query_tokens, SHINGLE_SIZE)
-    query_hashes = {hash_shingle(shingle) for shingle in query_shingles}
+    query_hash_positions = shingle_positions_by_hash(query_tokens, SHINGLE_SIZE)
+    query_hashes = set(query_hash_positions)
 
     source_docs = list_reference_candidates(
         include_unique_archive=payload.include_unique_archive,
@@ -993,48 +1054,63 @@ def run_check(
         if not common:
             continue
 
+        ref_hash_positions = shingle_positions_by_hash(ref_tokens, SHINGLE_SIZE, common)
         local_positions: set[int] = set()
-        source_local_positions: set[int] = set()
-        for i in range(len(query_tokens) - SHINGLE_SIZE + 1):
-            shingle = tuple(query_tokens[i : i + SHINGLE_SIZE])
-            if hash_shingle(shingle) in common:
-                local_positions.update(range(i, i + SHINGLE_SIZE))
-                matched_positions.update(range(i, i + SHINGLE_SIZE))
-        for i in range(len(ref_tokens) - SHINGLE_SIZE + 1):
-            shingle = tuple(ref_tokens[i : i + SHINGLE_SIZE])
-            if hash_shingle(shingle) in common:
-                source_local_positions.update(range(i, i + SHINGLE_SIZE))
+        match_links: list[tuple[int, int, int, int]] = []
+        for common_hash in common:
+            query_starts = query_hash_positions.get(common_hash, [])
+            ref_starts = ref_hash_positions.get(common_hash, [])
+            for query_start in query_starts:
+                query_end = query_start + SHINGLE_SIZE - 1
+                local_positions.update(range(query_start, query_end + 1))
+                for ref_start in ref_starts:
+                    ref_end = ref_start + SHINGLE_SIZE - 1
+                    match_links.append((query_start, query_end, ref_start, ref_end))
 
         if not local_positions:
             continue
+        matched_positions.update(local_positions)
 
-        start_idx = min(local_positions)
-        end_idx = max(local_positions)
-        start_char = query_tokens_spans[start_idx][1]
-        end_char = query_tokens_spans[end_idx][2]
-        highlighted_intervals.append((start_char, end_char))
-        source_fragment = ""
-        if source_local_positions:
-            source_start_idx = min(source_local_positions)
-            source_end_idx = max(source_local_positions)
-            source_start_char = ref_tokens_spans[source_start_idx][1]
-            source_end_char = ref_tokens_spans[source_end_idx][2]
-            source_fragment = ref_text[source_start_char:source_end_char]
+        for query_interval in token_intervals_from_positions(local_positions):
+            related_query_positions: set[int] = set()
+            related_source_positions: set[int] = set()
+            for query_start, query_end, ref_start, ref_end in match_links:
+                if query_end < query_interval[0] or query_start > query_interval[1]:
+                    continue
+                related_query_positions.update(
+                    range(
+                        max(query_start, query_interval[0]),
+                        min(query_end, query_interval[1]) + 1,
+                    )
+                )
+                related_source_positions.update(range(ref_start, ref_end + 1))
 
-        overlap_percent = round(len(local_positions) / len(query_tokens) * 100, 2)
-        matches_payload.append(
-            {
-                "source_document_id": ref["id"],
-                "source_title": ref["title"],
-                "source_kind": ref["kind"],
-                "source_url": ref["source_url"],
-                "overlap_percent": overlap_percent,
-                "fragment": processed_text[start_char:end_char],
-                "source_fragment": source_fragment,
-                "start_char": start_char,
-                "end_char": end_char,
-            }
-        )
+            if len(related_query_positions) < SHINGLE_SIZE:
+                continue
+
+            start_char, end_char = token_interval_to_char_span(query_tokens_spans, query_interval)
+            highlighted_intervals.append((start_char, end_char))
+
+            source_fragment = ""
+            source_interval = pick_source_interval(related_source_positions, query_interval)
+            if source_interval:
+                source_start_char, source_end_char = token_interval_to_char_span(ref_tokens_spans, source_interval)
+                source_fragment = ref_text[source_start_char:source_end_char]
+
+            overlap_percent = round(len(related_query_positions) / len(query_tokens) * 100, 2)
+            matches_payload.append(
+                {
+                    "source_document_id": ref["id"],
+                    "source_title": ref["title"],
+                    "source_kind": ref["kind"],
+                    "source_url": ref["source_url"],
+                    "overlap_percent": overlap_percent,
+                    "fragment": processed_text[start_char:end_char],
+                    "source_fragment": source_fragment,
+                    "start_char": start_char,
+                    "end_char": end_char,
+                }
+            )
 
     total_tokens = len(query_tokens)
     matched_tokens = len(matched_positions)

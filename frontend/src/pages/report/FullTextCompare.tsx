@@ -1,5 +1,5 @@
 import { Alert, Card, Col, Empty, Row, Skeleton, Tag, Typography } from "antd";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { kindLabel } from "../../lib/constants";
 import type { CheckMatch, CheckResult } from "../../types";
 import { DocumentReader } from "./DocumentReader";
@@ -32,12 +32,17 @@ export function FullTextCompare({
     [source, sourceInterval],
   );
 
+  useEffect(() => {
+    const node = compareReaderRef.current?.querySelector(`[data-match-index="${selectedIndex}"]`);
+    node?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [result.id, selectedIndex]);
+
   return (
     <Row gutter={[16, 16]} align="top">
       <Col xs={24} xl={12}>
         <Card
           size="small"
-          title="Полный текст проверяемой работы"
+          title="Полный документ проверяемой работы"
           extra={<Tag color="red">{match.overlap_percent}%</Tag>}
           className="reader-card"
         >

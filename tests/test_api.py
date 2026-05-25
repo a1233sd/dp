@@ -295,6 +295,42 @@ def test_document_text_endpoint_returns_full_text() -> None:
     assert response.json()["text"] == "Full source text for detailed report comparison."
 
 
+def test_matches_are_split_into_precise_fragments() -> None:
+    ref = client.post(
+        "/documents",
+        json={
+            "title": "split-reference",
+            "text": "alpha beta gamma source-only middle words delta epsilon zeta",
+            "kind": "reference",
+        },
+    )
+    submission = client.post(
+        "/documents",
+        json={
+            "title": "split-submission",
+            "text": "alpha beta gamma original bridge should stay outside delta epsilon zeta",
+            "kind": "submission",
+        },
+    )
+
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": False,
+        },
+    )
+
+    assert check.status_code == 200
+    fragments = [match["fragment"] for match in check.json()["matches"]]
+    assert len(fragments) == 2
+    assert any(fragment == "alpha beta gamma" for fragment in fragments)
+    assert any(fragment == "delta epsilon zeta" for fragment in fragments)
+    assert all("original bridge" not in fragment for fragment in fragments)
+
+
 def test_exclusion_rules_reduce_matches() -> None:
     ref = client.post(
         "/documents",
