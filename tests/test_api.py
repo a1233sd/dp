@@ -215,6 +215,39 @@ def make_docx_bytes(paragraphs: list[str]) -> bytes:
     return stream.getvalue()
 
 
+def make_docx_bytes_with_page_break(
+    first_page: str = "First page alpha beta gamma",
+    second_page: str = "Second page delta epsilon zeta",
+) -> bytes:
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        f"<w:p><w:r><w:t>{escape(first_page)}</w:t></w:r></w:p>"
+        f'<w:p><w:r><w:br w:type="page"/><w:t>{escape(second_page)}</w:t></w:r></w:p>'
+        "</w:body>"
+        "</w:document>"
+    )
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("word/document.xml", document)
+    return stream.getvalue()
+
+
+def upload_docx_document(filename: str, raw: bytes, kind: str) -> DirectResponse:
+    return client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                filename,
+                raw,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"kind": kind},
+    )
+
+
 def test_health() -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -427,6 +460,171 @@ def test_page_exclusion_rules_remove_selected_pages() -> None:
     assert reduced.json()["matches"] == []
 
 
+def test_page_exclusion_does_not_empty_single_page_document() -> None:
+    text = f"{page_marker(1)}\nSingle page copied phrase alpha beta gamma."
+    ref = client.post(
+        "/documents",
+        json={"title": "reference-single-page", "text": text, "kind": "reference"},
+    )
+    submission = client.post(
+        "/documents",
+        json={"title": "submission-single-page", "text": text, "kind": "submission"},
+    )
+    rule = client.post(
+        "/rules/exclusions",
+        json={"name": "page one", "rule_type": "pages", "value": "1"},
+    )
+    assert rule.status_code == 200
+
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": True,
+        },
+    )
+
+    assert check.status_code == 200
+    assert check.json()["total_tokens"] > 0
+
+
+def test_text_exclusion_rule_types_apply_to_docx_uploads() -> None:
+    cases = [
+        (
+            "literal",
+            "literal shared phrase alpha beta gamma",
+            "literal shared phrase alpha beta gamma",
+        ),
+        (
+            "contains",
+            "contains shared phrase",
+            "contains shared phrase alpha beta gamma",
+        ),
+        (
+            "starts_with",
+            "REMOVE-LINE",
+            "REMOVE-LINE starts shared phrase alpha beta gamma",
+        ),
+        (
+            "regex",
+            r"REGEX-\d{3}\s+shared phrase alpha beta gamma",
+            "REGEX-123 shared phrase alpha beta gamma",
+        ),
+    ]
+
+    for rule_type, rule_value, shared_paragraph in cases:
+        reset_db()
+        ref = upload_docx_document(
+            f"{rule_type}-ref.docx",
+            make_docx_bytes(
+                [
+                    shared_paragraph,
+                    "Reference only words one two three",
+                ]
+            ),
+            "reference",
+        )
+        submission = upload_docx_document(
+            f"{rule_type}-submission.docx",
+            make_docx_bytes(
+                [
+                    shared_paragraph,
+                    "Submission only words four five six",
+                ]
+            ),
+            "submission",
+        )
+        assert ref.status_code == 200
+        assert submission.status_code == 200
+
+        base = client.post(
+            "/checks",
+            json={
+                "submission_document_id": submission.json()["id"],
+                "reference_ids": [ref.json()["id"]],
+                "include_unique_archive": False,
+                "use_exclusion_rules": False,
+            },
+        )
+        assert base.status_code == 200
+        assert base.json()["matches"], rule_type
+
+        rule = client.post(
+            "/rules/exclusions",
+            json={"name": f"{rule_type} docx rule", "rule_type": rule_type, "value": rule_value},
+        )
+        assert rule.status_code == 200
+
+        reduced = client.post(
+            "/checks",
+            json={
+                "submission_document_id": submission.json()["id"],
+                "reference_ids": [ref.json()["id"]],
+                "include_unique_archive": False,
+                "use_exclusion_rules": True,
+            },
+        )
+        assert reduced.status_code == 200
+        assert reduced.json()["matches"] == [], rule_type
+        assert "shared phrase alpha beta gamma" not in reduced.json()["processed_text"]
+
+
+def test_page_exclusion_rule_applies_to_docx_with_page_breaks() -> None:
+    shared_page = "Shared title page copied phrase alpha beta gamma"
+    ref = upload_docx_document(
+        "paged-ref.docx",
+        make_docx_bytes_with_page_break(
+            shared_page,
+            "Reference page body unique one two three",
+        ),
+        "reference",
+    )
+    submission = upload_docx_document(
+        "paged-submission.docx",
+        make_docx_bytes_with_page_break(
+            shared_page,
+            "Submission page body unique four five six",
+        ),
+        "submission",
+    )
+    assert ref.status_code == 200
+    assert submission.status_code == 200
+
+    base = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": False,
+        },
+    )
+    assert base.status_code == 200
+    assert base.json()["matches"]
+
+    rule = client.post(
+        "/rules/exclusions",
+        json={"name": "docx title page", "rule_type": "pages", "value": "1"},
+    )
+    assert rule.status_code == 200
+
+    reduced = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": True,
+        },
+    )
+    assert reduced.status_code == 200
+    assert reduced.json()["matches"] == []
+    assert shared_page not in reduced.json()["processed_text"]
+    assert "Submission page body" in reduced.json()["processed_text"]
+
+
 def test_unique_archive_population() -> None:
     client.post(
         "/documents",
@@ -539,6 +737,45 @@ def test_docx_upload_extracts_text() -> None:
     assert payload["title"] == "work.docx"
     document = client.get(f"/documents/{payload['id']}")
     assert document.status_code == 200
+
+
+def test_docx_without_page_breaks_is_not_marked_as_single_page() -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "work.docx",
+                make_docx_bytes(["Docx unique alpha beta gamma", "Second paragraph"]),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"kind": "submission"},
+    )
+
+    assert response.status_code == 200
+    document = client.get(f"/documents/{response.json()['id']}/text")
+    assert document.status_code == 200
+    assert page_marker(1) not in document.json()["text"]
+
+
+def test_docx_with_explicit_page_breaks_preserves_page_markers() -> None:
+    response = client.post(
+        "/documents/upload",
+        files={
+            "file": (
+                "paged.docx",
+                make_docx_bytes_with_page_break(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"kind": "submission"},
+    )
+
+    assert response.status_code == 200
+    document = client.get(f"/documents/{response.json()['id']}/text")
+    assert document.status_code == 200
+    assert page_marker(1) in document.json()["text"]
+    assert page_marker(2) in document.json()["text"]
 
 
 def test_auth_profiles_scope_rules_for_checks() -> None:

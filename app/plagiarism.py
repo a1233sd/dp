@@ -98,15 +98,26 @@ def apply_page_exclusions(text: str, page_ranges: list[str]) -> str:
     for page_range in page_ranges:
         excluded_pages.update(parse_page_ranges(page_range))
 
+    unmarked_text = strip_page_markers(text)
     if not excluded_pages:
-        return strip_page_markers(text)
+        return unmarked_text
 
     chunks = split_text_by_pages(text)
     if all(page_number is None for page_number, _ in chunks):
-        return strip_page_markers(text)
+        return unmarked_text
 
     kept = [chunk for page_number, chunk in chunks if page_number is None or page_number not in excluded_pages]
-    return strip_page_markers("\n".join(kept))
+    filtered_text = strip_page_markers("\n".join(kept))
+
+    numbered_chunks = [chunk for page_number, chunk in chunks if page_number is not None]
+    if (
+        len(numbered_chunks) <= 1
+        and not tokenize_with_spans(filtered_text)
+        and tokenize_with_spans(unmarked_text)
+    ):
+        return unmarked_text
+
+    return filtered_text
 
 
 def apply_exclusions(text: str, patterns: list[str]) -> str:

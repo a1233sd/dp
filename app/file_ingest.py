@@ -63,24 +63,48 @@ def docx_text_from_bytes(raw: bytes) -> str:
         raise HTTPException(status_code=400, detail=f"Invalid DOCX XML: {exc}") from exc
 
     ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-    paragraphs: list[str] = []
+    page_break_tags = {f"{ns}lastRenderedPageBreak"}
+    pages: list[list[str]] = [[]]
     for paragraph in root.iter(f"{ns}p"):
         parts: list[str] = []
+
+        def flush_paragraph() -> None:
+            text = "".join(parts).strip()
+            if text:
+                pages[-1].append(text)
+            parts.clear()
+
+        def start_new_page() -> None:
+            flush_paragraph()
+            if pages[-1]:
+                pages.append([])
+
         for node in paragraph.iter():
             if node.tag == f"{ns}t" and node.text:
                 parts.append(node.text)
             elif node.tag == f"{ns}tab":
                 parts.append("\t")
             elif node.tag == f"{ns}br":
-                parts.append("\n")
-        text = "".join(parts).strip()
-        if text:
-            paragraphs.append(text)
+                if node.attrib.get(f"{ns}type") == "page":
+                    start_new_page()
+                else:
+                    parts.append("\n")
+            elif node.tag in page_break_tags:
+                start_new_page()
+        flush_paragraph()
 
-    text = "\n".join(paragraphs).strip()
+    pages = [page for page in pages if page]
+    text = "\n".join("\n".join(page) for page in pages).strip()
     if not text:
         raise HTTPException(status_code=400, detail="DOCX file has no extractable text.")
-    return f"{page_marker(1)}\n{text}"
+    if len(pages) <= 1:
+        return text
+
+    marked_pages: list[str] = []
+    for page_number, page in enumerate(pages, start=1):
+        page_text = "\n".join(page)
+        marked_pages.append(f"{page_marker(page_number)}\n{page_text}")
+    return "\n".join(marked_pages)
 
 
 def pptx_text_from_bytes(raw: bytes) -> str:
