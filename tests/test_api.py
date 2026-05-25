@@ -84,6 +84,8 @@ class DirectClient:
             return self._call(api.get_documents, kind=kind, only_unique=only_unique)
         if route == "/archive/unique":
             return self._call(api.get_unique_archive)
+        if route.startswith("/documents/") and route.endswith("/text"):
+            return self._call(api.get_document_text, route.split("/")[2])
         if route.startswith("/documents/"):
             return self._call(api.get_document_by_id, route.rsplit("/", 1)[1])
         if route.endswith("/report") and route.startswith("/checks/"):
@@ -273,6 +275,60 @@ def test_user_document_check_and_report() -> None:
     report = client.get(f"/checks/{payload['id']}/report")
     assert report.status_code == 200
     assert report.json()["summary"]["matched_sources"] >= 1
+
+
+def test_document_text_endpoint_returns_full_text() -> None:
+    document = client.post(
+        "/documents",
+        json={
+            "title": "source-with-text",
+            "text": "Full source text for detailed report comparison.",
+            "kind": "reference",
+        },
+    )
+    payload = document.json()
+
+    response = client.get(f"/documents/{payload['id']}/text")
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "source-with-text"
+    assert response.json()["text"] == "Full source text for detailed report comparison."
+
+
+def test_matches_are_split_into_precise_fragments() -> None:
+    ref = client.post(
+        "/documents",
+        json={
+            "title": "split-reference",
+            "text": "alpha beta gamma source-only middle words delta epsilon zeta",
+            "kind": "reference",
+        },
+    )
+    submission = client.post(
+        "/documents",
+        json={
+            "title": "split-submission",
+            "text": "alpha beta gamma original bridge should stay outside delta epsilon zeta",
+            "kind": "submission",
+        },
+    )
+
+    check = client.post(
+        "/checks",
+        json={
+            "submission_document_id": submission.json()["id"],
+            "reference_ids": [ref.json()["id"]],
+            "include_unique_archive": False,
+            "use_exclusion_rules": False,
+        },
+    )
+
+    assert check.status_code == 200
+    fragments = [match["fragment"] for match in check.json()["matches"]]
+    assert len(fragments) == 2
+    assert any(fragment == "alpha beta gamma" for fragment in fragments)
+    assert any(fragment == "delta epsilon zeta" for fragment in fragments)
+    assert all("original bridge" not in fragment for fragment in fragments)
 
 
 def test_exclusion_rules_reduce_matches() -> None:
