@@ -20,6 +20,7 @@ import type {
   DocumentItem,
   ExclusionRule,
   Health,
+  ServiceStatus,
   Settings,
   User,
   UserProfile,
@@ -42,6 +43,7 @@ export function EnterpriseApp() {
   const [rules, setRules] = useState<ExclusionRule[]>([]);
   const [archive, setArchive] = useState<ArchiveItem[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
+  const [serviceStatus, setServiceStatus] = useState<ServiceStatus>("unknown");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [history, setHistory] = useState<CheckHistoryItem[]>(loadHistory);
   const [loading, setLoading] = useState(false);
@@ -98,23 +100,38 @@ export function EnterpriseApp() {
     setCurrentUser(null);
     setProfiles([]);
     setActiveProfileId("");
+    setHealth(null);
+    setServiceStatus("unknown");
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(PROFILE_KEY);
     navigate("/login");
   }, []);
 
+  const checkHealth = useCallback(async () => {
+    setServiceStatus("checking");
+    try {
+      const healthData = await request<Health>("/health");
+      setHealth(healthData);
+      setServiceStatus(healthData?.status === "ok" ? "available" : "unavailable");
+      return healthData;
+    } catch {
+      setHealth(null);
+      setServiceStatus("unavailable");
+      return null;
+    }
+  }, [request]);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
+    void checkHealth();
     try {
-      const [healthData, settingsData, usersData, docsData, archiveData] = await Promise.all([
-        request<Health>("/health"),
+      const [settingsData, usersData, docsData, archiveData] = await Promise.all([
         request<Settings>("/settings"),
         request<User[]>("/users"),
         request<DocumentItem[]>("/documents"),
         request<ArchiveItem[]>("/archive/unique"),
       ]);
-      setHealth(healthData);
       setSettings(settingsData);
       setUsers(usersData);
       setDocuments(docsData);
@@ -138,17 +155,14 @@ export function EnterpriseApp() {
     } finally {
       setLoading(false);
     }
-  }, [activeProfileId, message, request, saveAuth]);
+  }, [activeProfileId, checkHealth, message, request, saveAuth]);
 
   useEffect(() => {
-    loadAll();
-  }, []);
-
-  useEffect(() => {
-    if (!["/login", "/register"].includes(route.path)) {
+    const hasToken = Boolean(authToken || localStorage.getItem(TOKEN_KEY));
+    if (hasToken && !["/login", "/register"].includes(route.path)) {
       void loadAll();
     }
-  }, [route.path]);
+  }, [authToken, loadAll, route.path]);
 
   useEffect(() => {
     const hasToken = Boolean(authToken || localStorage.getItem(TOKEN_KEY));
@@ -170,8 +184,7 @@ export function EnterpriseApp() {
 
   const handleAuth = useCallback((auth: AuthPayload) => {
     saveAuth(auth);
-    void loadAll();
-  }, [loadAll, saveAuth]);
+  }, [saveAuth]);
 
   if (route.path === "/login" || route.path === "/register") {
     return <AuthPage mode={route.path === "/register" ? "register" : "login"} onAuth={handleAuth} request={request} />;
@@ -218,13 +231,13 @@ export function EnterpriseApp() {
       activeProfileId={activeProfileId}
       collapsed={collapsed}
       currentUser={currentUser}
-      health={health}
       loading={loading}
       onLogout={logout}
       onProfileChange={changeProfile}
       onRefresh={loadAll}
       profiles={profiles}
       routePath={route.path}
+      serviceStatus={serviceStatus}
       setCollapsed={setCollapsed}
     >
       {page}

@@ -26,7 +26,7 @@ import {
 import type { ReactNode } from "react";
 import { roleLabel } from "../lib/constants";
 import { navigate } from "../lib/routing";
-import type { Health, User, UserProfile } from "../types";
+import type { ServiceStatus, User, UserProfile } from "../types";
 
 const { Content, Header, Sider } = Layout;
 const { useBreakpoint } = Grid;
@@ -36,31 +36,39 @@ interface AppShellProps {
   children: ReactNode;
   collapsed: boolean;
   currentUser: User | null;
-  health: Health | null;
   loading: boolean;
   onLogout: () => void;
   onProfileChange: (profileId: string) => void;
   onRefresh: () => void;
   profiles: UserProfile[];
   routePath: string;
+  serviceStatus: ServiceStatus;
   setCollapsed: (value: boolean) => void;
 }
+
+const serviceBadge: Record<ServiceStatus, { badgeStatus: "success" | "processing" | "error" | "default"; text: string }> = {
+  available: { badgeStatus: "success", text: "Сервис доступен" },
+  checking: { badgeStatus: "processing", text: "Проверяем сервис" },
+  unavailable: { badgeStatus: "error", text: "Сервис недоступен" },
+  unknown: { badgeStatus: "default", text: "Статус неизвестен" },
+};
 
 export function AppShell({
   activeProfileId,
   children,
   collapsed,
   currentUser,
-  health,
   loading,
   onLogout,
   onProfileChange,
   onRefresh,
   profiles,
   routePath,
+  serviceStatus,
   setCollapsed,
 }: AppShellProps) {
   const screens = useBreakpoint();
+  const currentServiceBadge = serviceBadge[serviceStatus];
   const menuItems = [
     { key: "/overview", icon: <DashboardOutlined />, label: "Обзор" },
     { key: "/documents", icon: <FolderOpenOutlined />, label: "Документы" },
@@ -105,8 +113,8 @@ export function AppShell({
               onClick={() => setCollapsed(!collapsed)}
             />
             <Badge
-              status={health?.status === "ok" ? "success" : "default"}
-              text={health?.status === "ok" ? "Сервис доступен" : "Статус неизвестен"}
+              status={currentServiceBadge.badgeStatus}
+              text={currentServiceBadge.text}
             />
           </Space>
 

@@ -89,6 +89,8 @@ export interface Health {
   users_total: number;
 }
 
+export type ServiceStatus = "unknown" | "checking" | "available" | "unavailable";
+
 export interface Settings {
   default_uniqueness_threshold: number;
 }
