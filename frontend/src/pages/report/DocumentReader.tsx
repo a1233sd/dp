@@ -1,41 +1,40 @@
 import { useMemo } from "react";
 import type { RefObject } from "react";
 import type { CheckResult } from "../../types";
+import { buildHighlightChunks } from "./textHighlight";
 
 interface DocumentReaderProps {
+  className?: string;
   onSelect: (index: number) => void;
-  readerRef: RefObject<HTMLDivElement | null>;
+  readerRef?: RefObject<HTMLDivElement | null>;
   result: CheckResult;
   selectedIndex: number;
+  visibleMatchIndexes?: number[];
 }
 
-export function DocumentReader({ onSelect, readerRef, result, selectedIndex }: DocumentReaderProps) {
+export function DocumentReader({
+  className = "",
+  onSelect,
+  readerRef,
+  result,
+  selectedIndex,
+  visibleMatchIndexes,
+}: DocumentReaderProps) {
   const chunks = useMemo(() => {
     const text = result.processed_text || "";
+    const visible = visibleMatchIndexes ? new Set(visibleMatchIndexes) : null;
     const intervals = result.matches
       .map((match, index) => ({
         start: Number(match.start_char),
         end: Number(match.end_char),
         index,
       }))
-      .filter((item) => Number.isFinite(item.start) && Number.isFinite(item.end) && item.end > item.start)
-      .sort((a, b) => a.start - b.start || b.end - a.end);
-
-    const output: Array<{ text: string; mark: boolean; index?: number }> = [];
-    let cursor = 0;
-    for (const item of intervals) {
-      const start = Math.max(cursor, item.start);
-      const end = Math.min(text.length, item.end);
-      if (start > cursor) output.push({ text: text.slice(cursor, start), mark: false });
-      if (end > start) output.push({ text: text.slice(start, end), mark: true, index: item.index });
-      cursor = Math.max(cursor, end);
-    }
-    if (cursor < text.length) output.push({ text: text.slice(cursor), mark: false });
-    return output;
-  }, [result]);
+      .filter((item) => !visible || visible.has(item.index));
+    return buildHighlightChunks(text, intervals);
+  }, [result, visibleMatchIndexes]);
 
   return (
-    <div className="document-reader" ref={readerRef}>
+    <div className={`document-reader ${className}`.trim()} ref={readerRef}>
       {chunks.map((chunk, index) => chunk.mark ? (
         <mark
           key={`${chunk.index}-${index}`}

@@ -36,6 +36,10 @@ export interface DocumentItem {
   created_at: string;
 }
 
+export interface DocumentText extends DocumentItem {
+  text: string;
+}
+
 export interface ArchiveItem {
   id: string;
   title: string;

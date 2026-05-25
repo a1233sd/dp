@@ -271,6 +271,21 @@ body {
   white-space: pre-wrap;
 }
 
+.compare-reader {
+  min-height: 520px;
+  max-height: 620px;
+  padding: 22px 26px;
+}
+
+.work-excerpt-reader {
+  min-height: 420px;
+  max-height: calc(100vh - 270px);
+}
+
+.compare-alert {
+  margin-bottom: 16px;
+}
+
 .shared-word {
   border-radius: 4px;
   padding: 1px 2px;

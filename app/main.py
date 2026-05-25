@@ -155,6 +155,10 @@ class DocumentOut(BaseModel):
     created_at: str
 
 
+class DocumentTextOut(DocumentOut):
+    text: str
+
+
 class DocumentUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     text: str | None = None
@@ -715,6 +719,20 @@ def get_document_by_id(document_id: str) -> DocumentOut:
     if not row:
         raise HTTPException(status_code=404, detail="Document not found.")
     return document_out_from_row(row)
+
+
+@app.get(
+    "/documents/{document_id}/text",
+    response_model=DocumentTextOut,
+    tags=["documents"],
+    summary="Получить полный текст документа",
+    description="Возвращает метаданные документа и полный извлеченный текст для экрана сравнения.",
+)
+def get_document_text(document_id: str) -> DocumentTextOut:
+    row = get_document(document_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return DocumentTextOut(**row)
 
 
 @app.patch(

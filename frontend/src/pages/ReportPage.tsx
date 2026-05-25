@@ -21,9 +21,9 @@ import { PageTitle } from "../components/PageTitle";
 import { kindLabel } from "../lib/constants";
 import { appendHistory } from "../lib/storage";
 import { formatDate, scoreStatus } from "../lib/format";
-import { DocumentReader } from "./report/DocumentReader";
-import { FragmentCompare } from "./report/FragmentCompare";
-import type { ApiRequest, CheckHistoryItem, CheckMatch, CheckResult } from "../types";
+import { FullTextCompare } from "./report/FullTextCompare";
+import { SelectedWorkExcerpt } from "./report/SelectedWorkExcerpt";
+import type { ApiRequest, CheckHistoryItem, CheckMatch, CheckResult, DocumentText } from "../types";
 
 const { Text, Title } = Typography;
 
@@ -36,6 +36,8 @@ interface ReportPageProps {
 export function ReportPage({ id, request, setHistory }: ReportPageProps) {
   const [result, setResult] = useState<CheckResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [sourceText, setSourceText] = useState<string | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const readerRef = useRef<HTMLDivElement>(null);
@@ -68,6 +70,32 @@ export function ReportPage({ id, request, setHistory }: ReportPageProps) {
   }, [filter, result]);
 
   const selected = result?.matches[selectedIndex] || null;
+
+  useEffect(() => {
+    if (!selected?.source_document_id) {
+      setSourceText(null);
+      return;
+    }
+
+    let isActive = true;
+    setSourceLoading(true);
+    setSourceText(null);
+
+    request<DocumentText>(`/documents/${encodeURIComponent(selected.source_document_id)}/text`)
+      .then((document) => {
+        if (isActive) setSourceText(document.text);
+      })
+      .catch(() => {
+        if (isActive) setSourceText(null);
+      })
+      .finally(() => {
+        if (isActive) setSourceLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [request, selected?.source_document_id]);
 
   const selectMatch = (index: number) => {
     setSelectedIndex(index);
@@ -184,14 +212,39 @@ export function ReportPage({ id, request, setHistory }: ReportPageProps) {
           </Card>
         </Col>
         <Col xs={24} xl={17}>
-          <Card title="Текст работы" className="reader-card">
-            <DocumentReader result={result} selectedIndex={selectedIndex} onSelect={selectMatch} readerRef={readerRef} />
+          <Card
+            title="Текст работы по выбранному источнику"
+            className="reader-card"
+            extra={selected && <Tag color="red">{selected.overlap_percent}%</Tag>}
+          >
+            {selected ? (
+              <SelectedWorkExcerpt
+                match={selected}
+                onSelect={selectMatch}
+                readerRef={readerRef}
+                result={result}
+                selectedIndex={selectedIndex}
+              />
+            ) : (
+              <Empty description="Выберите источник" />
+            )}
           </Card>
         </Col>
       </Row>
 
-      <Card title="Сравнение выбранного фрагмента">
-        {selected ? <FragmentCompare match={selected} /> : <Empty description="Выберите совпадение" />}
+      <Card title="Полнотекстовое сравнение">
+        {selected ? (
+          <FullTextCompare
+            match={selected}
+            onSelect={selectMatch}
+            result={result}
+            selectedIndex={selectedIndex}
+            sourceLoading={sourceLoading}
+            sourceText={sourceText}
+          />
+        ) : (
+          <Empty description="Выберите совпадение" />
+        )}
       </Card>
     </div>
   );
