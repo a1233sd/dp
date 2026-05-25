@@ -18,7 +18,7 @@
   - правил исключений.
 - Схема БД управляется миграциями `Alembic` (применяются автоматически при старте).
 - Индексация документов и повторное использование индексов при проверке.
-- Новый frontend на React + Ant Design:
+- Новый frontend на React + TypeScript + Ant Design:
   - отдельные страницы входа и регистрации,
   - рабочее пространство с боковой навигацией,
   - страницы обзора, документов, проверки, правил, архива и настроек,
@@ -48,7 +48,7 @@
 - psycopg (binary)
 - Alembic
 - Pytest
-- React
+- React + TypeScript
 - Vite
 - Ant Design
 
@@ -79,6 +79,12 @@ Enterprise UI:
 ## Frontend
 
 Исходники нового интерфейса находятся в `frontend/`. Сборка кладет production-файлы прямо в `app/static`, откуда их отдает FastAPI.
+Код разбит по привычной frontend-структуре:
+- `src/app` — состояние приложения, shell и routing guard.
+- `src/pages` — отдельные страницы.
+- `src/components` — переиспользуемые UI-компоненты.
+- `src/lib` — роутинг, форматирование, storage helpers.
+- `src/types.ts` — типы API-моделей.
 
 ```bash
 cd frontend
@@ -86,11 +92,29 @@ npm install
 npm run build
 ```
 
+Проверка типов:
+
+```bash
+cd frontend
+npm run typecheck
+```
+
 Для локальной разработки frontend можно запускать отдельно:
 
 ```bash
 cd frontend
 npm run dev
+```
+
+В dev-режиме Vite открывается по адресу:
+- `http://127.0.0.1:5173/static/#/login`
+
+При этом FastAPI должен быть запущен отдельно на `http://127.0.0.1:8000`.
+Vite настроен проксировать API-запросы (`/health`, `/documents`, `/auth`, `/checks` и т.д.) в FastAPI.
+Если backend запущен на другом порту, задайте:
+
+```bash
+VITE_API_PROXY_TARGET=http://127.0.0.1:8010 npm run dev
 ```
 
 Основные страницы UI:

@@ -15,6 +15,11 @@ body {
   width: 100%;
 }
 
+.page-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .top-gap {
   margin-top: 14px;
 }
